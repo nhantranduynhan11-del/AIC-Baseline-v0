@@ -23,6 +23,8 @@ from typing import Sequence
 
 import numpy as np
 
+from aic.models.embed_dim import resolve_embed_dim
+
 MODEL_NAME = "ViT-L-14-quickgelu"
 PRETRAINED = "dfn2b"
 
@@ -46,10 +48,21 @@ class ClipEncoder:
         self.model = model
         self.preprocess = preprocess
         self.tokenizer = open_clip.get_tokenizer(name)
+        # Chot so chieu NGAY luc nap: sai so chieu la sai ca FAISS index, phai lo
+        # ra o day chu khong phai giua chung khi da encode duoc nua chung.
+        self._dim = resolve_embed_dim(model, name, probe=self._probe_dim)
+
+    def _probe_dim(self) -> int:
+        """Do so chieu bang mot lan forward anh gia - duong cuoi khi khong doc
+        duoc tu thuoc tinh lan config."""
+        import numpy as np
+
+        dummy = np.zeros((64, 64, 3), dtype=np.uint8)
+        return int(self._encode_images_raw([dummy]).shape[1])
 
     @property
     def dim(self) -> int:
-        return int(self.model.visual.output_dim)
+        return self._dim
 
     def encode_images(self, images_rgb: Sequence[np.ndarray]) -> np.ndarray:
         """images_rgb: list anh numpy uint8 HxWx3 RGB. Tra ve (N, D) float32 da normalize."""
@@ -57,6 +70,12 @@ class ClipEncoder:
 
         if not images_rgb:
             return np.zeros((0, self.dim), dtype=np.float32)
+        return self._encode_images_raw(images_rgb)
+
+    def _encode_images_raw(self, images_rgb: Sequence[np.ndarray]) -> np.ndarray:
+        """Phan forward thuan tuy. Tach ra de _probe_dim goi duoc ma khong cham
+        vao self.dim (luc do self._dim chua ton tai)."""
+        from PIL import Image
 
         batch = self.torch.stack(
             [self.preprocess(Image.fromarray(img)) for img in images_rgb]

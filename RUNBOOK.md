@@ -20,7 +20,7 @@ uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 .venv/Scripts/python.exe -m pytest tests/ -q
 ```
 
-Mong đợi: **166 passed**. Test nào đỏ thì dừng lại sửa trước, đừng mang lên GPU thuê.
+Mong đợi: **tất cả pass** (hiện 201, một vài test bị skip nếu máy chưa cài `open_clip`). Test nào đỏ thì dừng lại sửa trước, đừng mang lên GPU thuê.
 
 ### Máy chạy thật (GPU vast.ai, Linux)
 
@@ -218,7 +218,7 @@ Model san sang tren cuda, dim=1024
 [1/2] L01_V001: 412 vector, 41.3s
 ```
 
-**Kiểm tra — `dim=1024`** (CLIP là 768). Script tự cảnh báo nếu lệch với config. Lần chạy đầu sẽ tải model từ HuggingFace, mất vài phút.
+**Kiểm tra — `dim=1024`** (CLIP là 768). Script tự cảnh báo nếu lệch với config. Lần chạy đầu sẽ tải model từ HuggingFace, mất vài phút — chạy `--limit 2` trước để không phát hiện lỗi sau khi đã chờ xong.
 
 Chạy hết rồi mới build index:
 
@@ -408,7 +408,7 @@ Mọi bước đều **bỏ qua phần đã xong**, nên sau khi sửa lỗi ch�
 
 ## Checklist trước buổi thi
 
-- [ ] `pytest tests/ -q` — 166 passed
+- [ ] `pytest tests/ -q` — tất cả pass
 - [ ] `check_alignment_from_meta` — manifest và 2 index khớp
 - [ ] `04_ocr.py --stats` — số dòng OCR hợp lý
 - [ ] `curl localhost:8000/health` — `ready: true`, `ocr: true`
