@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIC 2026 · UTEvuive</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --line: #2a3140;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #4c9aff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --danger: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  input, select, button { font: inherit; color: inherit; }
+  input[type=text], input[type=number], select {
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 9px;
+  }
+  input[type=text]:focus, input[type=number]:focus, select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  button {
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06101f; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  kbd {
+    background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 5px; font-size: 11px; font-family: ui-monospace, monospace;
+  }
+  .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  /* --- thanh truy van --- */
+  header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 14px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  #query { flex: 1; min-width: 260px; }
+  #ocr { width: 220px; }
+  .label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .chk { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+  #status { margin-left: auto; color: var(--muted); font-size: 12px; }
+  #status.err { color: var(--danger); }
+
+  /* --- than trang --- */
+  main { flex: 1; display: flex; min-height: 0; }
+  #results { flex: 1; overflow-y: auto; padding: 12px; }
+  #grid {
+    display: grid; gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+  .card {
+    position: relative; background: var(--panel); border: 2px solid transparent;
+    border-radius: 8px; overflow: hidden; cursor: pointer;
+  }
+  .card img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #000; }
+  .card .meta {
+    padding: 4px 6px; font-size: 11px; color: var(--muted);
+    display: flex; justify-content: space-between; gap: 6px;
+  }
+  .card .meta b { color: var(--text); font-weight: 600; }
+  .card.cursor { border-color: var(--accent); }
+  .card.picked { border-color: var(--ok); }
+  .card .rank {
+    position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,.72);
+    border-radius: 4px; padding: 1px 5px; font-size: 11px; font-family: ui-monospace, monospace;
+  }
+  .card .tick {
+    position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--ok); color: #06101f; font-weight: 700; font-size: 12px;
+    display: none; align-items: center; justify-content: center;
+  }
+  .card.picked .tick { display: flex; }
+
+  /* --- panel chi tiet --- */
+  #detail {
+    width: 330px; flex: 0 0 330px; background: var(--panel);
+    border-left: 1px solid var(--line); overflow-y: auto; padding: 12px;
+  }
+  #detail img.big { width: 100%; border-radius: 8px; background: #000; }
+  #detail h3 { margin: 10px 0 4px; font-size: 13px; }
+  #detail .kv { color: var(--muted); font-size: 12px; }
+  #detail .sep { border-top: 1px solid var(--line); margin: 12px 0; }
+  #neighbors { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
+  #neighbors img {
+    height: 46px; border-radius: 4px; border: 2px solid transparent; cursor: pointer; background: #000;
+  }
+  #neighbors img.here { border-color: var(--accent); }
+  .ocrline { font-size: 12px; padding: 3px 0; border-bottom: 1px dotted var(--line); }
+  .ocrline span { color: var(--muted); font-family: ui-monospace, monospace; }
+
+  /* --- gio nop bai --- */
+  footer { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 14px; }
+  #basket { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0; min-height: 34px; }
+  .chip {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 3px 8px; font-size: 12px; white-space: nowrap;
+    font-family: ui-monospace, monospace; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--danger); }
+  #count.full { color: var(--warn); font-weight: 700; }
+
+  .hint { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="row">
+    <input type="text" id="query" placeholder="Câu truy vấn…   (nhấn / để nhảy vào đây)" autofocus>
+    <span class="label">K</span><input type="number" id="k" value="1000" min="1" step="100" style="width:82px">
+    <span class="label">top-N</span><input type="number" id="topn" value="100" min="1" max="100" style="width:70px">
+    <button class="primary" id="btn-search">Search</button>
+    <span id="status">đang kiểm tra…</span>
+  </div>
+  <div class="row">
+    <span class="label">OCR filter</span>
+    <input type="text" id="ocr" placeholder="chữ trên màn hình">
+    <label class="chk"><input type="checkbox" id="ocr-phrase" checked> cả cụm</label>
+    <span class="label">conf ≥</span>
+    <input type="number" id="ocr-conf" value="0.3" min="0" max="1" step="0.05" style="width:70px">
+    <span class="sep-v"></span>
+    <span class="label">Task</span>
+    <select id="task"><option value="kis">KIS</option><option value="qa">Q&amp;A</option><option value="trake">TRAKE</option></select>
+    <input type="text" id="answer" placeholder="answer (Q&amp;A, ≤100 ký tự)" maxlength="100" style="width:260px; display:none">
+    <span class="hint" style="margin-left:auto">
+      <kbd>/</kbd> tìm · <kbd>↑↓←→</kbd> di chuyển · <kbd>Space</kbd> chọn ·
+      <kbd>,</kbd><kbd>.</kbd> keyframe lân cận · <kbd>Ctrl+E</kbd> xuất
+    </span>
+  </div>
+</header>
+
+<main>
+  <section id="results"><div class="empty">Nhập câu truy vấn rồi nhấn Search.</div></section>
+  <aside id="detail"><div class="empty">Chưa chọn keyframe.</div></aside>
+</main>
+
+<footer>
+  <div class="row">
+    <b>Giỏ nộp bài</b>
+    <span id="count" class="mono">0 / 100</span>
+    <button id="btn-export">Xuất CSV</button>
+    <button id="btn-clear">Xoá hết</button>
+    <span class="hint" id="export-note"></span>
+  </div>
+  <div id="basket"></div>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

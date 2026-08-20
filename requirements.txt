@@ -1,0 +1,42 @@
+# --- Core ---
+numpy
+pyyaml                  # doc configs/*.yaml
+tqdm
+
+# --- Vector store (A.6) ---
+faiss-cpu               # IndexFlatIP. Chay tren vast.ai van dung ban CPU duoc:
+                        # build index bi chi phoi boi buoc encode (GPU), khong phai buoc add.
+# sqlite3 nam trong thu vien chuan Python -> khong can cai gi cho SQLite FTS5
+
+# --- Models (A.2 / A.3 / B.1) ---
+torch
+torchvision
+Pillow
+open_clip_torch         # CHOT: dung open_clip cho ca CLIP lan SigLIP2
+timm                    # SigLIP2 vision tower la timm model (vit_large_patch16_siglip_256)
+transformers            # SigLIP2 text tokenizer la HF tokenizer (timm/ViT-L-16-SigLIP2-256)
+sentencepiece           # tokenizer SigLIP2 dung vocab 256k kieu Gemma
+
+# --- Video I/O ---
+opencv-python
+ffmpeg-python
+
+# --- Shot detection (A.1) ---
+transnetv2-pytorch      # v1.0.5. Weights (.pth 30MB) BUNDLE SAN trong wheel,
+                        # tu load trong __init__ -> khong can tai tay, khong can vendor.
+
+# --- API (B.1) ---
+fastapi
+uvicorn[standard]
+pydantic
+
+# --- Dev ---
+pytest
+
+# --- OCR (A.4) ---
+easyocr                 # CHOT. Chay tren torch da co; lan dau se tai model ve ~/.EasyOCR
+                        # -> tren vast.ai tro EASYOCR_MODULE_PATH vao volume.
+
+# --- Chua kich hoat ---
+# Object detection (A.5): hoan
+# ASR (B.2), LLM query enhancement (B.4): giai doan sau

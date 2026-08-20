@@ -1,0 +1,89 @@
+# AIC Challenge HCM 2026 - UTEvuive - Baseline v0
+# Moi gia tri duoi day lay tu spec baseline v0. Khong tu y doi.
+
+paths:
+  # Doi root neu data nam o o cung khac (vd: D:/aic_data)
+  data_root: data
+  videos: data/videos
+  shots: data/shots          # <video_id>.json
+  shots_raw: data/shots/raw   # <video_id>.npy - raw prediction, de doi threshold khong phai chay lai
+  keyframes: data/keyframes   # <video_id>/<frame_idx>.jpg (do phan giai goc, cho OCR)
+  thumbs: data/thumbs         # cung cau truc, anh nho cho grid UI
+  index_dir: data/index
+  clip_embeddings: data/index/clip_embeddings.npy   # embedding CLIP tai su dung tu A.2
+  manifest: data/index/manifest.csv
+  faiss_clip: data/index/clip_vitl14.faiss
+  faiss_siglip: data/index/siglip2_vitl16.faiss
+  index_meta: data/index/meta.json
+  metadata_db: data/metadata.db   # SQLite FTS5: OCR (+ ASR, object sau nay)
+
+# --- A.1 Shot Detection ---
+shot_detection:
+  model: TransNetV2           # package: transnetv2-pytorch (PyPI)
+  threshold: 0.5              # mac dinh cua model, giu nguyen o v0
+  save_raw_predictions: true  # luu single_frame_pred ra .npy. Doi threshold sau nay
+                              # chi ton vai giay thay vi chay lai inference tren vast.ai
+  video_ext: [".mp4", ".mkv", ".avi", ".mov", ".webm"]
+
+# --- A.2 Keyframe Extraction ---
+keyframe:
+  sample_every: 8             # cu moi 8 frame thi trich dac trung
+  l2_threshold: 0.4           # khoang cach L2 > 0.4 -> giu lam keyframe moi.
+                              # Chi co nghia tren vector DA NORMALIZE (d in [0,2]);
+                              # 0.4 tuong duong cosine ~0.92.
+  batch_size: 32              # so frame lay mau giu trong RAM moi lo. Frame o do phan
+                              # giai goc: 32 x 1080p ~ 200MB. Giam neu RAM cang.
+  jpeg_quality: 95            # keyframe con dung cho OCR -> khong nen nen manh
+  # Keyframe dau tien cua moi shot = frame dau tien trong chuoi lay mau (anchor,
+  # khong qua buoc so sanh L2). Embedding CLIP cua keyframe duoc GIU LAI va dung
+  # thang lam vector index o A.3 - khong encode lai.
+
+# --- A.3 Indexing / Embedding ---
+models:
+  backend: open_clip           # CHOT: load ca hai model bang open_clip
+  clip:
+    name: ViT-L-14-quickgelu  # XAC MINH open_clip: key nay duoc sinh tu dong tu
+    pretrained: dfn2b         # cac tag co quick_gelu=True -> cap (name, dfn2b) HOP LE
+    dim: 768                  # theo model_configs/ViT-L-14-quickgelu.json, anh 224
+  siglip2:
+    name: ViT-L-16-SigLIP2-256  # DA XAC MINH: 'ViT-L-16-256' KHONG ton tai trong
+    pretrained: webli           # open_clip. Ten dung la ViT-L-16-SigLIP2-256.
+    dim: 1024                   # anh 256, context_length 64 (CLIP la 77)
+
+# --- A.6 Vector store ---
+faiss:
+  index_type: IndexFlatIP     # brute-force, 100% recall. KHONG dung IVF/HNSW o v0
+  normalize_l2: true          # bat buoc ca vector index LAN vector query
+
+# --- B.1 Retrieval giai doan 1 ---
+retrieval:
+  top_k_per_model: 1000       # K truoc fusion (500-1000). FlatIP quet toan bo -> K lon gan nhu mien phi
+  rrf_k: 60                   # hang so RRF chuan (Cormack et al.)
+  final_top_n: 100            # gioi han nop bai cua ban to chuc
+
+# --- A.4 OCR ---
+ocr:
+  engine: easyocr             # CHOT
+  languages: ["vi"]
+  min_confidence: 0.1         # nguong luc GHI - chi vut rac ro rang.
+                              # Nguong loc that su dat luc truy van, vi doi nguong
+                              # o day thi phai chay lai OCR toan bo.
+  query_min_confidence: 0.3   # nguong mac dinh luc TRUY VAN (hard filter, Task 8)
+  sliding_window: false       # CHOT: moi keyframe chay OCR dung mot lan
+
+# --- Chua kich hoat ---
+# object_detection: HOAN (A.5)
+# asr: giai doan 2, model chua chot (B.2)
+# llm_query_enhancement: giai doan 4, model chua chot (B.4)
+
+# --- UI / API ---
+thumbs:
+  size: 320                   # canh dai nhat, px. Grid hien ~60 anh cung luc nen
+                              # khong the serve anh goc quality 95.
+  quality: 80
+
+runtime:
+  device: auto                # auto | cuda | cpu. Tien xu ly chay tren GPU thue vast.ai;
+                              # may dev local khong co GPU -> auto se roi ve cpu.
+  batch_size: 64
+  num_workers: 4

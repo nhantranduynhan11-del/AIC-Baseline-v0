@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Du lieu - khong bao gio commit (data/* chu khong phai data/, de con giu .gitkeep)
+data/*
+!data/.gitkeep
+*.faiss
+*.bin
+*.db
+*.mp4
+
+# Model weights
+weights/
+*.pth
+*.pt
+
+configs/local.yaml
+.env
