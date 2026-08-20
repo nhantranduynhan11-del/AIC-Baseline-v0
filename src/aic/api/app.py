@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="AIC 2026 - UTEvuive Retrieval", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="AIC 2026 - HCMUT Technologia Retrieval", version="0.1.0", lifespan=lifespan)
 
 
 def get_state() -> AppState:
