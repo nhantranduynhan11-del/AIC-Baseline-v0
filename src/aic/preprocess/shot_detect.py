@@ -36,16 +36,43 @@ def build_model(device: str = "auto"):
     return model
 
 
+# MP4/MOV hop le co box 'ftyp' o byte 4-8. Matroska/WebM va AVI dung magic khac.
+_FTYP_EXTS = {".mp4", ".m4v", ".mov"}
+_NOT_VIDEO_PREFIXES = (b"<!DOCTYPE", b"<html", b"<HTML", b"{", b"version https://git-lfs")
+
+
 def check_video_readable(video_path: str | Path) -> None:
-    """Kiem tra file truoc khi dua vao ffmpeg, de loi ro rang thay vi 'ffmpeg error'."""
+    """Kiem tra file truoc khi dua vao ffmpeg, de loi ro rang thay vi 'ffmpeg error'.
+
+    Chi doc 64 byte dau nen chay tren ca nghin file van gan nhu tuc thi. Doc 64
+    chu khong phai 16 vi con tro Git LFS bat dau bang mot dong 23 ky tu.
+    """
     path = Path(video_path)
     if not path.exists():
         raise FileNotFoundError(f"Khong co file: {path}")
+
     size = path.stat().st_size
     if size == 0:
         raise ValueError(f"{path.name}: file rong (0 byte) - tai lai video")
     if size < 1024:
         raise ValueError(f"{path.name}: chi {size} byte - gan nhu chac chan tai loi")
+
+    with open(path, "rb") as f:
+        head = f.read(64)
+
+    # Tai hong hay tra ve trang HTML bao loi / con tro Git LFS thay vi video.
+    for prefix in _NOT_VIDEO_PREFIXES:
+        if head.startswith(prefix):
+            raise ValueError(
+                f"{path.name}: khong phai file video ({size:,} byte, bat dau bang "
+                f"{head[:24]!r}). Nhieu kha nang tai ve trang loi hoac con tro LFS."
+            )
+
+    if path.suffix.lower() in _FTYP_EXTS and head[4:8] != b"ftyp":
+        raise ValueError(
+            f"{path.name}: khong tim thay box 'ftyp' o dau file ({size:,} byte). "
+            "File MP4 bi cat cut hoac hong - tai lai."
+        )
 
 
 def probe_fps(video_path: str | Path) -> float:

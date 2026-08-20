@@ -94,7 +94,7 @@ class TestChanDoanLoiFfmpeg:
 
     def test_file_hop_le_thi_khong_bao_gi(self, tmp_path):
         p = tmp_path / "ok.mp4"
-        p.write_bytes(b"x" * 4096)
+        p.write_bytes(bytes([0, 0, 0, 0x20]) + b"ftypisom" + b"x" * 4096)
         sd.check_video_readable(p)
 
     def test_thong_bao_loi_boc_duoc_stderr_cua_ffmpeg(self):
@@ -110,3 +110,37 @@ class TestChanDoanLoiFfmpeg:
     def test_khong_co_stderr_thi_van_ra_thong_bao_doc_duoc(self):
         msg = sd._ffmpeg_message(Exception(), "a.mp4", tool="ffprobe")
         assert "ffprobe that bai voi a.mp4" in msg
+
+
+class TestNhanDangFileKhongPhaiVideo:
+    """Tai hong thuong tra ve trang HTML hoac con tro LFS thay vi video."""
+
+    def _write(self, tmp_path, name, data):
+        p = tmp_path / name
+        p.write_bytes(data)
+        return p
+
+    def test_trang_html_bao_loi(self, tmp_path):
+        p = self._write(tmp_path, "a.mp4", b"<!DOCTYPE html><html>quota exceeded</html>" + b" " * 2000)
+        with pytest.raises(ValueError, match="khong phai file video"):
+            sd.check_video_readable(p)
+
+    def test_con_tro_git_lfs(self, tmp_path):
+        p = self._write(tmp_path, "b.mp4",
+                        b"version https://git-lfs.github.com/spec/v1\noid sha256:abc\n" + b" " * 2000)
+        with pytest.raises(ValueError, match="con tro LFS"):
+            sd.check_video_readable(p)
+
+    def test_mp4_thieu_box_ftyp(self, tmp_path):
+        p = self._write(tmp_path, "c.mp4", b"\x00\x00\x00\x20MOOV" + b"x" * 5000)
+        with pytest.raises(ValueError, match="ftyp"):
+            sd.check_video_readable(p)
+
+    def test_mp4_hop_le_di_qua(self, tmp_path):
+        p = self._write(tmp_path, "d.mp4", b"\x00\x00\x00\x20ftypisom" + b"x" * 8000)
+        sd.check_video_readable(p)
+
+    def test_mkv_khong_bi_ap_luat_ftyp(self, tmp_path):
+        """Matroska dung magic khac; chi .mp4/.m4v/.mov moi kiem tra ftyp."""
+        p = self._write(tmp_path, "e.mkv", b"\x1a\x45\xdf\xa3" + b"x" * 5000)
+        sd.check_video_readable(p)

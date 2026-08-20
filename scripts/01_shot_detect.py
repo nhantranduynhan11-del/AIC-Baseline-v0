@@ -3,6 +3,7 @@
 Chay tren vast.ai:
     python scripts/01_shot_detect.py
     python scripts/01_shot_detect.py --videos /data/videos --device cuda
+    python scripts/01_shot_detect.py --check-only            # chi kiem tra file co doc duoc khong
     python scripts/01_shot_detect.py --rethreshold 0.4      # dung .npy da luu, khong inference lai
 
 Mac dinh BO QUA video da co file JSON -> dut mang giua chung thi chay lai la resume.
@@ -35,6 +36,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--threshold", type=float, default=None, help="Ghi de shot_detection.threshold")
     p.add_argument("--overwrite", action="store_true", help="Chay lai ca video da co JSON")
     p.add_argument("--limit", type=int, default=None, help="Chi xu ly N video dau (de thu)")
+    p.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Chi kiem tra file video doc duoc hay khong, khong chay model",
+    )
     p.add_argument(
         "--rethreshold",
         type=float,
@@ -71,6 +77,22 @@ def main() -> int:
     if not todo:
         return 0
 
+    # Kiem tra ca me TRUOC khi nap model: chi doc 16 byte moi file nen gan nhu
+    # tuc thi, va bao het file hong mot lan thay vi lo dan tung cai sau moi lan
+    # cho model chay. Voi bo du lieu ca nghin video thi khac biet la rat lon.
+    todo, broken = preflight(todo)
+    if broken:
+        print(f"\n{len(broken)}/{len(broken) + len(todo)} video KHONG DOC DUOC:", file=sys.stderr)
+        for _, err in broken:
+            print(f"  - {err}", file=sys.stderr)   # err da chua ten file
+        print("Tai lai nhung file nay roi chay lai.\n", file=sys.stderr)
+    if not todo:
+        print("Khong con video nao hop le de xu ly.", file=sys.stderr)
+        return 1
+    if args.check_only:
+        print(f"{len(todo)} video doc duoc.")
+        return 1 if broken else 0
+
     print("Dang load TransNetV2...")
     model = sd.build_model(device)
     print(f"Model san sang tren device: {getattr(model, 'device', '?')}")
@@ -100,6 +122,19 @@ def main() -> int:
             print(f"  - {name}: {err}", file=sys.stderr)
         return 1
     return 0
+
+
+def preflight(videos: list[Path]) -> tuple[list[Path], list[tuple[str, str]]]:
+    """Tach danh sach thanh (doc duoc, hong). Khong nap model, khong goi ffmpeg."""
+    ok: list[Path] = []
+    broken: list[tuple[str, str]] = []
+    for video in videos:
+        try:
+            sd.check_video_readable(video)
+            ok.append(video)
+        except (FileNotFoundError, ValueError) as exc:
+            broken.append((video.name, str(exc)))
+    return ok, broken
 
 
 def rethreshold_all(videos: list[Path], out_dir: Path, raw_dir: Path, threshold: float) -> int:
