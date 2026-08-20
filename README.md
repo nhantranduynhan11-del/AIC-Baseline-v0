@@ -1,4 +1,4 @@
-# AIC Challenge HCM 2026 — UTEvuive — Baseline v0
+# AIC Challenge HCM 2026 — HCMUT Technologia — Baseline v0
 
 Hệ thống truy xuất video. Mọi model / threshold / kiến trúc theo **skill `aic2026-baseline-v0`** — đó là nguồn sự thật, file này chỉ mô tả cách chạy repo.
 
