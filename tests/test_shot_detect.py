@@ -15,6 +15,15 @@ import pytest
 from aic.preprocess import shot_detect as sd
 
 
+def mp4_bytes(payload: int = 4096, with_moov: bool = True) -> bytes:
+    """MP4 toi thieu hop le: ftyp + mdat + moov."""
+    def box(box_type: bytes, data: bytes = b"") -> bytes:
+        return (8 + len(data)).to_bytes(4, "big") + box_type + data
+
+    out = box(b"ftyp", b"isom" + bytes(8)) + box(b"mdat", b"x" * payload)
+    return out + box(b"moov", b"y" * 200) if with_moov else out
+
+
 @pytest.fixture
 def preds():
     return np.array([0.1, 0.2, 0.9, 0.1, 0.05, 0.1, 0.8, 0.2, 0.1], dtype=np.float32)
@@ -94,7 +103,7 @@ class TestChanDoanLoiFfmpeg:
 
     def test_file_hop_le_thi_khong_bao_gi(self, tmp_path):
         p = tmp_path / "ok.mp4"
-        p.write_bytes(bytes([0, 0, 0, 0x20]) + b"ftypisom" + b"x" * 4096)
+        p.write_bytes(mp4_bytes())
         sd.check_video_readable(p)
 
     def test_thong_bao_loi_boc_duoc_stderr_cua_ffmpeg(self):
@@ -137,8 +146,14 @@ class TestNhanDangFileKhongPhaiVideo:
             sd.check_video_readable(p)
 
     def test_mp4_hop_le_di_qua(self, tmp_path):
-        p = self._write(tmp_path, "d.mp4", b"\x00\x00\x00\x20ftypisom" + b"x" * 8000)
+        p = self._write(tmp_path, "d.mp4", mp4_bytes(payload=8000))
         sd.check_video_readable(p)
+
+    def test_mp4_co_ftyp_nhung_thieu_moov_bi_chan(self, tmp_path):
+        """Đúng trường hợp gặp trên vast.ai - xem thêm tests/test_mp4_check.py."""
+        p = self._write(tmp_path, "f.mp4", mp4_bytes(with_moov=False))
+        with pytest.raises(ValueError, match="moov"):
+            sd.check_video_readable(p)
 
     def test_mkv_khong_bi_ap_luat_ftyp(self, tmp_path):
         """Matroska dung magic khac; chi .mp4/.m4v/.mov moi kiem tra ftyp."""

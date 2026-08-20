@@ -68,11 +68,71 @@ def check_video_readable(video_path: str | Path) -> None:
                 f"{head[:24]!r}). Nhieu kha nang tai ve trang loi hoac con tro LFS."
             )
 
-    if path.suffix.lower() in _FTYP_EXTS and head[4:8] != b"ftyp":
-        raise ValueError(
-            f"{path.name}: khong tim thay box 'ftyp' o dau file ({size:,} byte). "
-            "File MP4 bi cat cut hoac hong - tai lai."
-        )
+    if path.suffix.lower() in _FTYP_EXTS:
+        if head[4:8] != b"ftyp":
+            raise ValueError(
+                f"{path.name}: khong tim thay box 'ftyp' o dau file ({size:,} byte). "
+                "File MP4 bi cat cut hoac hong - tai lai."
+            )
+        check_mp4_complete(path, size)
+
+
+def iter_mp4_boxes(path: str | Path, file_size: int):
+    """Duyet cac box cap cao nhat cua MP4. Yield (loai, offset, kich thuoc).
+
+    MP4 la chuoi box lien tiep, moi box mo dau bang 4 byte kich thuoc + 4 byte
+    loai. Nho vay chi can vai lan seek la di het file, khong phai doc 24MB.
+    """
+    with open(path, "rb") as f:
+        offset = 0
+        while offset + 8 <= file_size:
+            f.seek(offset)
+            header = f.read(8)
+            if len(header) < 8:
+                return
+            box_size = int.from_bytes(header[:4], "big")
+            box_type = header[4:8]
+
+            if box_size == 1:                       # kich thuoc 64-bit nam ngay sau
+                ext = f.read(8)
+                if len(ext) < 8:
+                    return
+                box_size = int.from_bytes(ext, "big")
+            elif box_size == 0:                     # box keo den het file
+                box_size = file_size - offset
+
+            if box_size < 8:
+                return                              # header hong, dung lai
+            yield box_type, offset, box_size
+            offset += box_size
+
+
+def check_mp4_complete(path: str | Path, file_size: int) -> None:
+    """Bat MP4 tai cat cut: co 'ftyp' o dau nhung thieu 'moov'.
+
+    `moov` chua toan bo chi muc (so frame, codec, vi tri du lieu). Trong phan lon
+    MP4 no nam o CUOI file, nen tai dut o giua cho ra dung trieu chung nay: dau
+    file trong van hop le, ffmpeg chet ngay voi 'moov atom not found'.
+    """
+    name = Path(path).name
+    types: list[bytes] = []
+    for box_type, offset, box_size in iter_mp4_boxes(path, file_size):
+        types.append(box_type)
+        if box_type == b"moov":
+            return
+        if offset + box_size > file_size:
+            raise ValueError(
+                f"{name}: box '{box_type.decode('ascii', 'replace')}' khai bao "
+                f"{box_size:,} byte tai offset {offset:,} nhung file chi co "
+                f"{file_size:,} byte - file bi CAT CUT, tai lai."
+            )
+
+    seen = ", ".join(t.decode("ascii", "replace") for t in types[:6]) or "(khong doc duoc box nao)"
+    raise ValueError(
+        f"{name}: khong co box 'moov' ({file_size:,} byte, cac box: {seen}). "
+        "'moov' chua chi muc cua video va thuong nam o cuoi file -> tai bi cat cut. "
+        "Tai lai bang `wget -c` hoac doi chieu kich thuoc voi nguon."
+    )
 
 
 def probe_fps(video_path: str | Path) -> float:

@@ -123,6 +123,25 @@ python scripts/01_shot_detect.py --rethreshold 0.4
 | `fps` đúng 25.000 ở mọi video | ffmpeg không có trong PATH → probe thất bại lặng lẽ |
 | CUDA OOM ở video dài | `predict_video` giữ cả video 48×27 trên GPU (~3.9KB/frame) |
 | Số shot cực lớn | video có hiệu ứng chuyển cảnh liên tục, hoặc threshold quá thấp |
+| `moov atom not found` | **file tải bị cắt cụt** — xem mục dưới |
+
+**Kiểm tra dữ liệu trước, không cần GPU:**
+
+```bash
+python scripts/01_shot_detect.py --check-only
+```
+
+Chạy trên cả nghìn file trong vài giây. Bắt được: file thiếu / 0 byte, trang HTML báo lỗi tải về thay vì video (hay gặp khi `gdown` đụng quota Google Drive), con trỏ Git LFS chưa pull, MP4 thiếu box `ftyp`, và **MP4 tải cắt cụt** (có `ftyp` nhưng thiếu `moov`).
+
+**Dấu hiệu tải cắt cụt** — kiểm tra kích thước:
+
+```bash
+ls -la data/videos/
+```
+
+Kích thước là **bội số chẵn của 64KB** (hoặc 1MB), hoặc nhiều file **trùng kích thước đến từng byte**, gần như chắc chắn là tải đứt tại ranh giới buffer. Video thật không có kích thước như vậy. Tải lại bằng `wget -c` và đối chiếu kích thước với nguồn.
+
+Vì sao `ftyp` vẫn đúng mà file lại hỏng: `ftyp` nằm ở **đầu** file, còn `moov` (chứa toàn bộ chỉ mục: số frame, codec, vị trí dữ liệu) thường nằm ở **cuối**. Tải mất đuôi thì đầu file trông vẫn hoàn hảo.
 
 ---
 
