@@ -36,24 +36,85 @@ def build_model(device: str = "auto"):
     return model
 
 
+def check_video_readable(video_path: str | Path) -> None:
+    """Kiem tra file truoc khi dua vao ffmpeg, de loi ro rang thay vi 'ffmpeg error'."""
+    path = Path(video_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Khong co file: {path}")
+    size = path.stat().st_size
+    if size == 0:
+        raise ValueError(f"{path.name}: file rong (0 byte) - tai lai video")
+    if size < 1024:
+        raise ValueError(f"{path.name}: chi {size} byte - gan nhu chac chan tai loi")
+
+
+def probe_fps(video_path: str | Path) -> float:
+    """Lay fps bang ffprobe. RAISE khi probe that bai.
+
+    KHONG dung model.get_video_fps() cua package: ham do nuot moi loi va tra ve
+    25.0, nen mot video probe hong se lang le co fps sai, keo theo `pts_time` sai
+    o toan bo pipeline ma khong co dau hieu gi.
+    """
+    import ffmpeg
+
+    try:
+        probe = ffmpeg.probe(str(video_path))
+    except ffmpeg.Error as exc:
+        raise RuntimeError(_ffmpeg_message(exc, video_path, "ffprobe")) from exc
+
+    stream = next((s for s in probe["streams"] if s["codec_type"] == "video"), None)
+    if stream is None:
+        raise ValueError(f"{Path(video_path).name}: khong co luong video nao trong file")
+
+    rate = stream.get("r_frame_rate") or stream.get("avg_frame_rate") or ""
+    try:
+        if "/" in rate:
+            num, den = rate.split("/")
+            fps = float(num) / float(den)
+        else:
+            fps = float(rate)
+    except (ValueError, ZeroDivisionError) as exc:
+        raise ValueError(f"{Path(video_path).name}: r_frame_rate la '{rate}'") from exc
+
+    if fps <= 0:
+        raise ValueError(f"{Path(video_path).name}: fps = {fps}")
+    return fps
+
+
+def _ffmpeg_message(exc: Exception, video_path: str | Path, tool: str = "ffmpeg") -> str:
+    """Boc stderr cua ffmpeg vao thong bao loi.
+
+    ffmpeg-python bat stderr vao thuoc tinh cua exception nhung __str__ chi in
+    'ffmpeg error (see stderr output for detail)' - cau do khong noi len dieu gi.
+    """
+    raw = getattr(exc, "stderr", None) or b""
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    lines = [line for line in raw.strip().splitlines() if line.strip()]
+    tail = "\n    ".join(lines[-6:]) if lines else "(khong co stderr)"
+    return f"{tool} that bai voi {Path(video_path).name}:\n    {tail}"
+
+
 def predict_raw_frames(model, video_path: str | Path) -> tuple[np.ndarray, float]:
     """Chay inference, tra ve (single_frame_pred, fps).
 
     `predict_video` tra ve (video_frames, single_frame_pred, all_frame_pred).
     `video_frames` la ca video da resize 48x27 nam tren device (~3.9KB/frame,
     100k frame ~ 390MB VRAM) - ta khong dung toi nen tha tham chieu ngay.
-
-    ⚠️ get_video_fps() cua package tra ve 25.0 khi ffmpeg probe that bai, KHONG
-    raise. Ham nay doi chieu voi so frame de it nhat phat hien duoc truong hop la.
     """
+    import ffmpeg
     import torch
 
-    fps = float(model.get_video_fps(str(video_path)))
+    check_video_readable(video_path)
+    fps = probe_fps(video_path)
 
-    with torch.no_grad():
-        out = model.predict_video(str(video_path), quiet=True)
-        single = out[1].cpu().detach().numpy().astype(np.float32)
-    del out
+    try:
+        with torch.no_grad():
+            out = model.predict_video(str(video_path), quiet=True)
+            single = out[1].cpu().detach().numpy().astype(np.float32)
+        del out
+    except ffmpeg.Error as exc:
+        raise RuntimeError(_ffmpeg_message(exc, video_path)) from exc
 
     return single, fps
 

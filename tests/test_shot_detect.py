@@ -71,3 +71,42 @@ def test_find_videos_loc_dung_duoi_va_sap_xep(tmp_path):
         f.touch()
     got = sd.find_videos(tmp_path, [".mp4", ".mkv"])
     assert [p.name for p in got] == ["a.MP4", "b.mp4", "d.mkv"]
+
+
+class TestChanDoanLoiFfmpeg:
+    """Loi ffmpeg phai noi ro no hong o dau, khong phai 'ffmpeg error'."""
+
+    def test_file_khong_ton_tai(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="Khong co file"):
+            sd.check_video_readable(tmp_path / "khong-co.mp4")
+
+    def test_file_rong(self, tmp_path):
+        p = tmp_path / "e.mp4"
+        p.write_bytes(b"")
+        with pytest.raises(ValueError, match="file rong"):
+            sd.check_video_readable(p)
+
+    def test_file_qua_nho_gan_nhu_chac_chan_tai_loi(self, tmp_path):
+        p = tmp_path / "t.mp4"
+        p.write_bytes(b"x" * 200)
+        with pytest.raises(ValueError, match="200 byte"):
+            sd.check_video_readable(p)
+
+    def test_file_hop_le_thi_khong_bao_gi(self, tmp_path):
+        p = tmp_path / "ok.mp4"
+        p.write_bytes(b"x" * 4096)
+        sd.check_video_readable(p)
+
+    def test_thong_bao_loi_boc_duoc_stderr_cua_ffmpeg(self):
+        class FakeFfmpegError(Exception):
+            stderr = (b"[mov,mp4] moov atom not found\n"
+                      b"data/videos/L21_V001.mp4: Invalid data found when processing input\n")
+
+        msg = sd._ffmpeg_message(FakeFfmpegError(), "data/videos/L21_V001.mp4")
+        assert "L21_V001.mp4" in msg
+        assert "moov atom not found" in msg          # dong that su huu ich
+        assert "Invalid data found" in msg
+
+    def test_khong_co_stderr_thi_van_ra_thong_bao_doc_duoc(self):
+        msg = sd._ffmpeg_message(Exception(), "a.mp4", tool="ffprobe")
+        assert "ffprobe that bai voi a.mp4" in msg
