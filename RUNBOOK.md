@@ -374,6 +374,76 @@ Bước 1→2→3 **bắt buộc tuần tự**. Sau bước 3, các nhánh 4-5 /
 
 ---
 
+## Chia việc cho nhiều người
+
+150 video chia 5 người thì **mỗi người chỉ chạy 30 video của mình**, không ai phải chạy hết.
+
+Mọi sản phẩm của A.1–A.3 đều nằm theo **từng video** trong thư mục riêng, nên gộp lại chỉ là copy file. Chia bằng cách đơn giản nhất: mỗi người bỏ 30 video của mình vào `data/videos/` rồi chạy y hệt hướng dẫn phía trên. Không cần cờ gì đặc biệt.
+
+**Chia danh sách video sao cho không trùng nhau.** Hai người cùng xử lý một video sẽ tạo ra hai bản ghi cùng `video_id`, và bước gộp không phát hiện được đó là lỗi.
+
+### Mỗi người chạy
+
+```bash
+python scripts/00_run_all.py --device cuda      # bước 1 → 6, gồm cả OCR
+```
+
+OCR phải chạy trên máy đã có ảnh keyframe, nên để nguyên trong phần việc mỗi người — đừng để dồn về một máy.
+
+### Nộp về máy gộp
+
+| Cần chuyển | Dung lượng / 30 video |
+|---|---|
+| `data/shots/` | ~5 MB |
+| `data/keyframes/<id>/keyframes.json` + `clip.npy` + `siglip2.npy` | **~95 MB** |
+| `data/metadata.db` (đổi tên theo người, vd `an.db`) | vài MB |
+| `data/keyframes/<id>/*.jpg` | ~2,5 GB |
+
+Chỉ cần **~0,5 GB** cho cả 150 video là đủ để build index — ảnh JPEG (12 GB) chỉ cần trên máy sẽ chạy search và UI. Nếu đường truyền hẹp: chạy `05_thumbnails.py` ở phía mỗi người rồi chỉ chuyển `data/thumbs/` (1,2 GB), chấp nhận ảnh chi tiết ở độ phân giải thấp hơn.
+
+### Máy gộp làm gì
+
+```bash
+# 1. Gộp DB OCR của mọi người
+python scripts/06_merge.py --merge-db /mnt/share/an.db /mnt/share/binh.db /mnt/share/*.db
+
+# 2. Kiểm tra đã đủ chưa
+python scripts/06_merge.py --check
+```
+
+`--check` đối chiếu từng video xem có đủ 5 thứ không (shot JSON, keyframes.json, clip.npy, siglip2.npy, OCR) và liệt kê đích danh video nào thiếu gì.
+
+```
+150 video trong data/
+
+  bước                 đủ   thiếu
+  A.1 shot            150       0
+  A.2 keyframe        150       0
+  A.2 clip.npy        150       0
+  A.3 siglip2         148       2   <-- THIẾU
+  A.4 OCR             150       0
+
+2 video chưa xong:
+  - L21_V087: thiếu A.3 siglip2
+  - L21_V112: thiếu A.3 siglip2
+```
+
+**Chỉ khi `--check` báo "Đủ hết" mới được chạy bước gộp cuối:**
+
+```bash
+python scripts/02_keyframe.py --build-manifest
+python scripts/03_build_index.py --build
+python scripts/05_thumbnails.py
+```
+
+> ⚠️ Vì sao `--check` là bắt buộc: `--build-manifest` **không biết** là nó đang thiếu dữ liệu. Thiếu video nào thì manifest đơn giản là không có video đó, hai FAISS index vẫn khớp manifest thiếu ấy, mọi assert vẫn xanh, và hệ thống chạy hoàn hảo — chỉ là vĩnh viễn không bao giờ tìm ra video bị thiếu. Đây là lỗi tốn kém nhất có thể xảy ra và không có gì tự báo.
+
+### Thứ tự bắt buộc
+
+Chỉ **một người duy nhất** chạy `--build-manifest`, và chỉ **sau khi** đã thu đủ. Muốn thêm video sau đó thì phải chạy lại `--build-manifest` **và** `03 --build` — FAISS `IndexFlatIP` không thêm dần được, phải build lại toàn bộ. Build lại nhanh (chỉ đọc `.npy` rồi `add`, không encode lại), nên đây không phải vấn đề lớn.
+
+---
+
 ## Ước lượng thời gian
 
 Không có con số cố định — phụ thuộc GPU thuê, độ dài video và tỉ lệ giữ keyframe. **Cách đúng là tự đo:**

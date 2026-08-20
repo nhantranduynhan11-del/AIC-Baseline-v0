@@ -41,6 +41,7 @@ Kiểm tra nhanh:
 | `src/aic/retrieval/` | encode query → search → RRF → hard filter → top-100 |
 | `src/aic/submit/` | export KIS / QA / TRAKE |
 | `scripts/` | entrypoint chạy tay từng bước |
+| `scripts/06_merge.py` | gộp kết quả nhiều máy + kiểm tra đủ dữ liệu |
 
 ## Bất biến quan trọng nhất
 
