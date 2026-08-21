@@ -12,6 +12,10 @@ goc (data/keyframes -> data/thumbs). Nho vay khong dinh dang gi toi bat bien ID:
 UI xin /thumb/{idx}, server tra manifest[idx].path trong thu muc thumbs.
 
 Chi dung CPU, chay duoc song song, khong can GPU.
+
+KHONG can manifest: neu chua co manifest.csv thi doc thang keyframes.json cua
+tung video. Thumbnail dat ten theo duong dan anh chu khong theo idx nen khong
+dinh gi toi bat bien ID.
 """
 
 from __future__ import annotations
@@ -43,6 +47,25 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def list_keyframe_paths(manifest: Path, keyframes_dir: Path) -> tuple[list[str], str]:
+    """Danh sach duong dan anh keyframe (tuong doi so voi keyframes_dir).
+
+    Uu tien manifest neu co. KHONG bat buoc phai co: thumbnail duoc dat ten theo
+    DUONG DAN anh chu khong theo idx, nen no khong dinh gi toi bat bien ID va
+    chay duoc truoc ca buoc --build-manifest. Nho vay moi thanh vien sinh
+    thumbnail cho phan cua minh duoc ngay, khong phai doi may gop.
+    """
+    if manifest.exists():
+        return [entry.path for entry in iter_manifest(manifest)], f"manifest ({manifest.name})"
+
+    from aic.preprocess.keyframe import KEYFRAME_META, read_keyframe_meta
+
+    paths: list[str] = []
+    for meta_path in sorted(keyframes_dir.glob(f"*/{KEYFRAME_META}")):
+        paths.extend(kf["path"] for kf in read_keyframe_meta(meta_path)["keyframes"])
+    return paths, f"keyframes.json cua {len(list(keyframes_dir.glob('*/' + KEYFRAME_META)))} video (chua co manifest)"
+
+
 def make_thumb(src: Path, dst: Path, size: int, quality: int) -> bool:
     from PIL import Image
 
@@ -64,16 +87,17 @@ def main() -> int:
     quality = args.quality or cfg.thumbs.quality
     workers = args.workers or cfg.runtime.num_workers
 
-    manifest = Path(cfg.paths.manifest)
-    if not manifest.exists():
-        print(f"Chua co {manifest}. Chay A.2 --build-manifest truoc.", file=sys.stderr)
+    rel_paths, source = list_keyframe_paths(Path(cfg.paths.manifest), keyframes)
+    if not rel_paths:
+        print(f"Khong tim thay keyframe nao trong {keyframes}. Chay A.2 truoc.", file=sys.stderr)
         return 1
+    print(f"Nguon danh sach keyframe: {source}")
 
     jobs: list[tuple[Path, Path]] = []
-    for entry in iter_manifest(manifest):
-        dst = thumbs / entry.path
+    for rel in rel_paths:
+        dst = thumbs / rel
         if args.overwrite or not dst.exists():
-            jobs.append((keyframes / entry.path, dst))
+            jobs.append((keyframes / rel, dst))
         if args.limit and len(jobs) >= args.limit:
             break
 

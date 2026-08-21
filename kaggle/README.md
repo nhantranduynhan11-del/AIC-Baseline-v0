@@ -130,14 +130,30 @@ Quota GPU của Kaggle là **30 giờ/tuần**, nên một tài khoản chạy �
 
 ## Sau khi mọi người chạy xong
 
-Trên **một** máy, gom `aic_meta.tar.gz` của mọi người rồi:
+Trên **một** máy, gom kết quả của mọi người rồi làm **đúng thứ tự này**:
 
 ```bash
+# 1. Giải nén vào data/
+tar xzf aic_meta.tar.gz -C data
+tar xf aic_keyframes.tar -C data
+
+# 2. Gộp DB OCR
 python scripts/06_merge.py --merge-db data/metadata_shard*.db
-python scripts/06_merge.py --check          # phải báo "Đủ hết"
+
+# 3. Kiểm tra đã đủ chưa — phải báo "Đủ hết" mới đi tiếp
+python scripts/06_merge.py --check
+
+# 4. Sinh manifest  <-- CHỈ CHẠY MỘT LẦN, sau khi đã gom đủ
 python scripts/02_keyframe.py --build-manifest
+
+# 5. Build 2 FAISS index
 python scripts/03_build_index.py --build
+
+# 6. Thumbnail cho UI
+python scripts/05_thumbnails.py
 ```
+
+⚠️ **Bước 4 phải chạy sau bước 3.** Kaggle cố tình không chạy `--build-manifest` vì manifest là nguồn sự thật của bất biến ID: sinh nó khi mới có một phần dữ liệu sẽ cho ra manifest thiếu, hai FAISS index vẫn khớp manifest thiếu ấy, mọi assert vẫn xanh, và những video bị sót sẽ vĩnh viễn không tìm ra được.
 
 Xem thêm mục "Chia việc cho nhiều người" trong [RUNBOOK.md](../RUNBOOK.md).
 
@@ -151,6 +167,8 @@ Xem thêm mục "Chia việc cho nhiều người" trong [RUNBOOK.md](../RUNBOOK
 | Hết dung lượng `/kaggle/working` | giới hạn 20 GB — chạy ít video hơn mỗi phiên, hoặc thêm `--skip-ocr` rồi chạy OCR ở phiên riêng |
 | `moov atom not found` | video trong dataset bị hỏng — xem mục A.1 trong RUNBOOK |
 | `temp.zip: No such file or directory` | hai tiến trình đua nhau tải model — đã sửa, `git pull` lấy bản mới |
+| Output không có `manifest.csv` | **đúng như thiết kế** — Kaggle không chạy `--build-manifest`. Chạy nó ở bước 4 trên máy gộp |
+| `05_thumbnails.py` báo thiếu manifest | đã sửa: giờ nó đọc `keyframes.json` khi chưa có manifest. `git pull` |
 
 ## Vì sao phải tải weights trước
 
