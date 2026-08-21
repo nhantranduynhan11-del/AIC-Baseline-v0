@@ -30,6 +30,7 @@ use_utf8()
 import numpy as np
 
 from aic.config import load_config
+from aic.sharding import select_shard
 from aic.preprocess import indexing
 from aic.preprocess.keyframe import KEYFRAME_META
 
@@ -44,6 +45,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--build", action="store_true", help="Build 2 FAISS index tu manifest")
     p.add_argument("--overwrite", action="store_true", help="Encode lai ca video da co siglip2.npy")
     p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--shard", default=None, metavar="I/N",
+                   help="Chi xu ly phan thu I trong N phan (vd 0/2). De chay nhieu GPU.")
     return p.parse_args()
 
 
@@ -66,7 +69,9 @@ def main() -> int:
 
 
 def run_encode(cfg, keyframes_dir: Path, args) -> int:
-    video_ids = sorted(p.parent.name for p in keyframes_dir.glob(f"*/{KEYFRAME_META}"))
+    video_ids = select_shard(
+        sorted(p.parent.name for p in keyframes_dir.glob(f"*/{KEYFRAME_META}")), args.shard
+    )
     if args.limit:
         video_ids = video_ids[: args.limit]
     if not video_ids:

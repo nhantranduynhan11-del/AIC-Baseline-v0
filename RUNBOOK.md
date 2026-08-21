@@ -388,6 +388,18 @@ Mọi sản phẩm của A.1–A.3 đều nằm theo **từng video** trong thư
 python scripts/00_run_all.py --device cuda      # bước 1 → 6, gồm cả OCR
 ```
 
+Máy có **nhiều GPU** thì chia tiếp bằng `--shard I/N`, mỗi phần một GPU:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/01_shot_detect.py --shard 0/2 --device cuda &
+CUDA_VISIBLE_DEVICES=1 python scripts/01_shot_detect.py --shard 1/2 --device cuda &
+wait
+```
+
+Chia xen kẽ nên hai phần cân tải dù video dài ngắn khác nhau. Riêng bước OCR, mỗi phần phải ghi DB riêng (`--db`) vì hai tiến trình cùng ghi một file SQLite sẽ tranh khoá.
+
+**Chạy trên Kaggle 2×T4**: đã có sẵn script làm hết việc này — xem [kaggle/README.md](kaggle/README.md).
+
 OCR phải chạy trên máy đã có ảnh keyframe, nên để nguyên trong phần việc mỗi người — đừng để dồn về một máy.
 
 ### Nộp về máy gộp

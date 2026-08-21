@@ -28,6 +28,7 @@ from aic.console import use_utf8
 use_utf8()
 
 from aic.config import load_config
+from aic.sharding import select_shard
 from aic.preprocess import keyframe as kf
 from aic.preprocess import shot_detect as sd
 
@@ -49,6 +50,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Chi gop ket qua da co thanh manifest.csv + clip_embeddings.npy",
     )
+    p.add_argument("--shard", default=None, metavar="I/N",
+                   help="Chi xu ly phan thu I trong N phan (vd 0/2). De chay nhieu GPU.")
     return p.parse_args()
 
 
@@ -68,7 +71,7 @@ def main() -> int:
     batch_size = args.batch_size or cfg.keyframe.batch_size
     device = args.device or cfg.runtime.device
 
-    videos = sd.find_videos(videos_dir, cfg.shot_detection.video_ext)
+    videos = select_shard(sd.find_videos(videos_dir, cfg.shot_detection.video_ext), args.shard)
     if args.limit:
         videos = videos[: args.limit]
     if not videos:

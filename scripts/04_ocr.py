@@ -27,6 +27,7 @@ from aic.console import use_utf8
 use_utf8()
 
 from aic.config import load_config
+from aic.sharding import select_shard
 from aic.preprocess import ocr as ocr_mod
 from aic.store import sqlite_store as store
 
@@ -42,6 +43,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--query", default=None, help="Chi tra cuu DB, khong chay OCR")
     p.add_argument("--no-phrase", action="store_true", help="Tim theo tung tu (AND) thay vi ca cum")
     p.add_argument("--stats", action="store_true", help="In thong ke DB roi thoat")
+    p.add_argument("--shard", default=None, metavar="I/N",
+                   help="Chi xu ly phan thu I trong N phan (vd 0/2). De chay nhieu GPU.")
     return p.parse_args()
 
 
@@ -59,7 +62,7 @@ def main() -> int:
         return 0
 
     keyframes_dir = Path(args.keyframes or cfg.paths.keyframes)
-    video_ids = ocr_mod.video_ids_with_keyframes(keyframes_dir)
+    video_ids = select_shard(ocr_mod.video_ids_with_keyframes(keyframes_dir), args.shard)
     if args.limit:
         video_ids = video_ids[: args.limit]
     if not video_ids:

@@ -42,6 +42,7 @@ Kiểm tra nhanh:
 | `src/aic/submit/` | export KIS / QA / TRAKE |
 | `scripts/` | entrypoint chạy tay từng bước |
 | `scripts/06_merge.py` | gộp kết quả nhiều máy + kiểm tra đủ dữ liệu |
+| `kaggle/` | chạy tiền xử lý trên Kaggle 2×T4 |
 
 ## Bất biến quan trọng nhất
 

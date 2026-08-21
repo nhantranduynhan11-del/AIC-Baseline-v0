@@ -24,6 +24,7 @@ from aic.console import use_utf8
 use_utf8()
 
 from aic.config import load_config
+from aic.sharding import select_shard
 from aic.preprocess import shot_detect as sd
 
 
@@ -48,6 +49,8 @@ def parse_args() -> argparse.Namespace:
         metavar="T",
         help="Tao lai JSON tu .npy da luu voi threshold moi. Khong chay inference.",
     )
+    p.add_argument("--shard", default=None, metavar="I/N",
+                   help="Chi xu ly phan thu I trong N phan (vd 0/2). De chay nhieu GPU.")
     return p.parse_args()
 
 
@@ -62,7 +65,7 @@ def main() -> int:
     device = args.device or cfg.runtime.device
     save_raw = bool(cfg.shot_detection.save_raw_predictions)
 
-    videos = sd.find_videos(videos_dir, cfg.shot_detection.video_ext)
+    videos = select_shard(sd.find_videos(videos_dir, cfg.shot_detection.video_ext), args.shard)
     if args.limit:
         videos = videos[: args.limit]
     if not videos:
