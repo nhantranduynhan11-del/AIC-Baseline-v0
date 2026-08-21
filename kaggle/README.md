@@ -70,6 +70,45 @@ Tách làm hai vì phần nhẹ là thứ duy nhất cần cho bước gộp cu�
 
 Log của từng phần nằm ở `/kaggle/working/log_<bước>_shard<i>.txt`.
 
+**Chỉ cần tải hai file tar.** Bỏ qua `.cache/` (weights, tải lại được), `repo/` (đã có trên GitHub), và `aic-data/` — nội dung của nó đã nằm trong hai file tar rồi.
+
+## Tải kết quả về
+
+### Cách 1 — kaggle CLI (khuyến nghị cho file lớn)
+
+Trên máy của bạn:
+
+```bash
+pip install kaggle
+kaggle kernels output <username>/<kernel-slug> -p ./kaggle_out
+```
+
+Lấy `<username>/<kernel-slug>` từ URL notebook. Cần API token: Kaggle → Account → Create New API Token → lưu `kaggle.json` vào `~/.kaggle/`.
+
+Đây là cách ổn định nhất — trình duyệt hay treo khi tải file vài GB từ tab Output.
+
+### Cách 2 — cắt nhỏ rồi tải từ tab Output
+
+```python
+!python /kaggle/working/repo/kaggle/run_preprocess.py --pack-only --split 900 --clean
+```
+
+`--split 900` cắt gói ảnh thành các mảnh 900MB, `--clean` xoá `.cache/`, `repo/` và ảnh đã đóng gói để Output nhẹ hẳn.
+
+Ghép lại ở máy đích:
+
+```bash
+cat aic_keyframes.tar.part* > aic_keyframes.tar
+tar xf aic_keyframes.tar
+tar xzf aic_meta.tar.gz
+```
+
+Thứ tự ghép theo tên file (`part00`, `part01`, …) nên `cat` với `*` không bao giờ ghép lộn.
+
+### Cách 3 — Save Version thành dataset
+
+**Save Version** → output thành một Kaggle Dataset → tải từ trang dataset hoặc `kaggle datasets download`. Cách này cũng chính là cách để chạy tiếp phiên sau.
+
 ## Giới hạn 9 giờ và cách chạy tiếp
 
 Kaggle giết phiên GPU ở mốc 9 giờ. Script mặc định dừng ở **8,5 giờ** rồi đóng gói phần đã làm — chừa 30 phút để không mất trắng.

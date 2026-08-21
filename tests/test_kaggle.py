@@ -172,3 +172,60 @@ class TestCacheWeights:
         kag.set_cache_env()
         kag.write_config(Path("/x"))
         kag.warm_caches(skip_ocr=False)      # máy dev không có open_clip/easyocr
+
+
+class TestCatNhoVaDon:
+    def test_cat_thanh_nhieu_manh_ghep_lai_khop_byte(self, kag, tmp_path):
+        data = bytes(range(256)) * 5000          # 1,28 MB
+        target = tmp_path / "big.tar"
+        target.write_bytes(data)
+
+        parts = kag.split_file(target, size_mb=1)
+        assert len(parts) == 2
+        assert not target.exists()               # bản nguyên đã bỏ
+        assert [p.name for p in parts] == ["big.tar.part00", "big.tar.part01"]
+
+        # ghép theo thứ tự tên, đúng như `cat *.part*`
+        joined = b"".join(p.read_bytes() for p in sorted(tmp_path.glob("big.tar.part*")))
+        assert joined == data
+
+    def test_file_nho_hon_mot_manh_thi_khong_cat(self, kag, tmp_path):
+        target = tmp_path / "small.tar"
+        target.write_bytes(b"x" * 1000)
+        assert kag.split_file(target, size_mb=1) == []
+        assert target.exists()                   # giữ nguyên, không sinh mảnh
+        assert list(tmp_path.glob("small.tar.part*")) == []
+
+    def test_clean_xoa_cache_va_repo(self, kag, tmp_path):
+        for name in (".cache", "repo", ".virtual_documents"):
+            d = tmp_path / name
+            d.mkdir(parents=True)
+            (d / "f.bin").write_bytes(b"z" * 1000)
+
+        kag.clean_workspace()
+
+        for name in (".cache", "repo", ".virtual_documents"):
+            assert not (tmp_path / name).exists()
+
+    def test_chi_xoa_anh_khi_da_dong_goi(self, kag, tmp_path):
+        images = kag.DATA / "keyframes" / "V001"
+        images.mkdir(parents=True)
+        (images / "0.jpg").write_bytes(b"j" * 100)
+
+        kag.clean_workspace()                        # chưa có tar -> phải giữ ảnh
+        assert (images / "0.jpg").exists()
+
+        (tmp_path / "aic_keyframes.tar").write_bytes(b"t")
+        kag.clean_workspace()
+        assert not (images / "0.jpg").exists()
+
+    def test_giu_lai_npy_khi_don_dep(self, kag, tmp_path):
+        """Dọn ảnh nhưng KHÔNG được đụng vào embedding."""
+        d = kag.DATA / "keyframes" / "V001"
+        d.mkdir(parents=True)
+        (d / "0.jpg").write_bytes(b"j")
+        (d / "clip.npy").write_bytes(b"n")
+        (tmp_path / "aic_keyframes.tar").write_bytes(b"t")
+
+        kag.clean_workspace()
+        assert (d / "clip.npy").exists()

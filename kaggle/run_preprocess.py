@@ -304,11 +304,13 @@ def merge_ocr_dbs(shards: int) -> None:
     )
 
 
-def pack(shards: int) -> None:
+def pack(shards: int, split_mb: int = 0) -> None:
     """Đóng gói kết quả thành hai file: phần nhẹ và phần ảnh.
 
     Tách ra vì phần nhẹ (~100MB/30 video) là ĐỦ để build index, còn ảnh JPEG
     (~2,5GB/30 video) chỉ cần trên máy chạy search và UI.
+
+    split_mb > 0 thì cắt gói ảnh thành nhiều mảnh, cho trình duyệt tải nổi.
     """
     print(f"\n{'=' * 70}\n### Đóng gói\n{'=' * 70}")
 
@@ -330,9 +332,68 @@ def pack(shards: int) -> None:
                         filter=lambda t: t if t.name.endswith((".jpg", "/")) or t.isdir() else None)
             print(f"  {archive.name}  {archive.stat().st_size / 1e9:.2f} GB   "
                   f"({len(jpgs)} ảnh) <- chỉ cần ở máy chạy UI")
+            if split_mb:
+                split_file(archive, split_mb)
 
     print("\nTải hai file trên từ tab Output, hoặc Save Version để thành dataset")
     print("cho phiên sau (--resume-from /kaggle/input/<tên-dataset>).")
+
+
+def split_file(path: Path, size_mb: int) -> list[Path]:
+    """Cắt file thành nhiều mảnh nhỏ hơn để trình duyệt tải nổi.
+
+    Trình duyệt hay treo khi tải file vài GB từ Output của Kaggle. Ghép lại ở máy
+    đích bằng `cat`, thứ tự theo tên file nên không sợ ghép lộn.
+    """
+    chunk = size_mb * 1024 * 1024
+    parts: list[Path] = []
+    with open(path, "rb") as src:
+        while True:
+            data = src.read(chunk)
+            if not data:
+                break
+            part = path.with_name(f"{path.name}.part{len(parts):02d}")
+            part.write_bytes(data)
+            parts.append(part)
+
+    if len(parts) <= 1:                     # không cần cắt thì bỏ mảnh đi
+        for part in parts:
+            part.unlink()
+        return []
+
+    path.unlink()                           # đã có các mảnh, bỏ bản nguyên
+    print(f"  -> cắt thành {len(parts)} mảnh {size_mb}MB: {parts[0].name} ... {parts[-1].name}")
+    print(f"     ghép lại ở máy đích:  cat {path.name}.part* > {path.name}")
+    return parts
+
+
+def clean_workspace() -> None:
+    """Xoá thứ không cần trong Output: weights model và bản sao repo.
+
+    Weights (~3GB) tải lại được, repo đã có trên GitHub. Giữ chúng chỉ tổ ăn hết
+    hạn mức 20GB của /kaggle/working và làm Save Version chậm.
+    """
+    print(f"\n{'=' * 70}\n### Dọn thư mục làm việc\n{'=' * 70}")
+    for name in (".cache", "repo", ".virtual_documents"):
+        target = WORK / name
+        if not target.is_dir():
+            continue
+        size = sum(f.stat().st_size for f in target.rglob("*") if f.is_file())
+        shutil.rmtree(target, ignore_errors=True)
+        print(f"  xoá {name}/  ({size / 1e9:.2f} GB)")
+
+    if (WORK / "aic_keyframes.tar").exists() or list(WORK.glob("aic_keyframes.tar.part*")):
+        images = DATA / "keyframes"
+        jpgs = list(images.rglob("*.jpg")) if images.is_dir() else []
+        if jpgs:
+            size = sum(f.stat().st_size for f in jpgs)
+            for f in jpgs:
+                f.unlink()
+            print(f"  xoá {len(jpgs)} ảnh trong aic-data/keyframes/  ({size / 1e9:.2f} GB)"
+                  f"  — đã nằm trong aic_keyframes.tar")
+
+    print("\n  ⚠️ Xoá repo/ rồi thì không chạy lại script từ /kaggle/working/repo được nữa.")
+    print("     Cần chạy tiếp thì clone lại ở ô đầu.")
 
 
 # --------------------------------------------------------------------------
@@ -351,6 +412,10 @@ def parse_args() -> argparse.Namespace:
                    help="Thư mục kết quả phiên trước trong /kaggle/input")
     p.add_argument("--skip-ocr", action="store_true")
     p.add_argument("--pack-only", action="store_true", help="Chỉ đóng gói kết quả đã có")
+    p.add_argument("--split", type=int, default=0, metavar="MB",
+                   help="Cắt gói ảnh thành mảnh MB (vd 900) để trình duyệt tải nổi")
+    p.add_argument("--clean", action="store_true",
+                   help="Xoá .cache/ repo/ và ảnh đã đóng gói, để nhẹ Output")
     return p.parse_args()
 
 
@@ -363,7 +428,9 @@ def main() -> int:
 
     if args.pack_only:
         write_config(DATA / "videos")
-        pack(args.shards or 2)
+        pack(args.shards or 2, args.split)
+        if args.clean:
+            clean_workspace()
         return 0
 
     if not args.run:
@@ -423,7 +490,9 @@ def main() -> int:
         merge_ocr_dbs(shards)
 
     print(f"\nTổng thời gian chạy: {(time.time() - t0) / 3600:.2f} giờ")
-    pack(shards)
+    pack(shards, args.split)
+    if args.clean:
+        clean_workspace()
 
     print("\nBước cuối (chạy trên MỘT máy sau khi gom đủ mọi phần):")
     print("  python scripts/06_merge.py --check")
