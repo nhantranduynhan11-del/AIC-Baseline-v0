@@ -92,6 +92,7 @@ def setup() -> int:
     )
     print(check.stdout or check.stderr)
     print("Xong. Chạy tiếp:  !python kaggle/run_preprocess.py --run")
+    print("(weights sẽ được tải ở đầu bước --run, một lần cho cả hai GPU)")
     return 0
 
 
@@ -174,17 +175,69 @@ def gpu_count() -> int:
         return 0
 
 
+def set_cache_env() -> None:
+    """Trỏ cache weights vào /kaggle/working, cho CẢ tiến trình cha lẫn con.
+
+    Tiến trình cha cũng cần, vì chính nó tải sẵn weights (xem warm_caches).
+    """
+    os.environ.setdefault("HF_HOME", str(WORK / ".cache" / "hf"))
+    os.environ.setdefault("EASYOCR_MODULE_PATH", str(WORK / ".cache" / "easyocr"))
+
+
+def warm_caches(skip_ocr: bool) -> None:
+    """Tải weights TRƯỚC, ở tiến trình cha, rồi mới chạy song song.
+
+    Hai tiến trình cùng tải một model vào cùng thư mục cache sẽ đua nhau.
+    EasyOCR là ca nặng nhất: nó tải về một file tên CỐ ĐỊNH `temp.zip`, giải nén
+    xong thì os.remove() — tiến trình chậm hơn gọi remove trên file vừa bị xoá và
+    chết với FileNotFoundError. Tải trước ở đây thì cả hai tiến trình con đều
+    thấy cache đã sẵn và không tải gì nữa.
+
+    Tải bằng CPU để không chiếm VRAM; nạp xong là thả ngay.
+    """
+    import yaml
+
+    with open(CONFIG, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    print(f"\n{'=' * 70}\n### Tải sẵn weights (tránh 2 tiến trình tải trùng)\n{'=' * 70}")
+    print(f"  HF_HOME={os.environ['HF_HOME']}")
+    print(f"  EASYOCR_MODULE_PATH={os.environ['EASYOCR_MODULE_PATH']}")
+
+    for key in ("clip", "siglip2"):
+        name, tag = cfg["models"][key]["name"], cfg["models"][key]["pretrained"]
+        t0 = time.time()
+        try:
+            import open_clip
+
+            model, _, _ = open_clip.create_model_and_transforms(name, pretrained=tag, device="cpu")
+            del model
+            print(f"  {key:<8} {name} ({tag})  {time.time() - t0:.0f}s")
+        except Exception as exc:
+            print(f"  ! {key}: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    if not skip_ocr:
+        t0 = time.time()
+        try:
+            import easyocr
+
+            easyocr.Reader(list(cfg["ocr"]["languages"]), gpu=False)
+            print(f"  easyocr  {cfg['ocr']['languages']}  {time.time() - t0:.0f}s")
+        except Exception as exc:
+            print(f"  ! easyocr: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    # TransNetV2 không cần: weights nằm sẵn trong wheel, không tải gì.
+
+
 def launch(step: str, shard: int, shards: int, gpu: int, extra: list[str]) -> subprocess.Popen:
     """Chạy một script trên đúng một GPU.
 
     CUDA_VISIBLE_DEVICES=<gpu> làm tiến trình con chỉ THẤY một GPU, nên nó gọi
     cuda:0 mà thực chất là GPU được chỉ định. Không phải sửa gì trong code model.
     """
-    env = dict(os.environ)
+    env = dict(os.environ)          # đã có HF_HOME / EASYOCR_MODULE_PATH từ set_cache_env()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
     env["PYTHONUNBUFFERED"] = "1"
-    env.setdefault("HF_HOME", str(WORK / ".cache" / "hf"))
-    env.setdefault("EASYOCR_MODULE_PATH", str(WORK / ".cache" / "easyocr"))
 
     argv = [
         sys.executable, str(REPO / "scripts" / step),
@@ -336,9 +389,11 @@ def main() -> int:
         print("! Chỉ thấy <2 GPU. Kiểm tra Accelerator = GPU T4 x2 trong Settings.",
               file=sys.stderr)
 
+    set_cache_env()
     write_config(videos_dir)
     if args.resume_from:
         restore_previous(Path(args.resume_from))
+    warm_caches(args.skip_ocr)
 
     deadline = time.time() + args.deadline_hours * 3600
     common = ["--device", "cuda"]

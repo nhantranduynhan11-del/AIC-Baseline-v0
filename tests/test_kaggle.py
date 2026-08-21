@@ -124,3 +124,51 @@ class TestDongGoi:
         assert any(n.endswith("clip.npy") for n in names)
         assert not any(n.endswith(".jpg") for n in names), "gói nhẹ không được chứa ảnh"
         assert (tmp_path / "aic_keyframes.tar").exists()
+
+
+class TestCacheWeights:
+    """Hai tiến trình cùng tải một model vào cùng cache sẽ đua nhau và một cái chết."""
+
+    def test_set_cache_env_tro_vao_thu_muc_ghi_duoc(self, kag, tmp_path, monkeypatch):
+        monkeypatch.delenv("HF_HOME", raising=False)
+        monkeypatch.delenv("EASYOCR_MODULE_PATH", raising=False)
+        kag.set_cache_env()
+        import os
+
+        assert os.environ["HF_HOME"] == str(tmp_path / ".cache" / "hf")
+        assert os.environ["EASYOCR_MODULE_PATH"] == str(tmp_path / ".cache" / "easyocr")
+
+    def test_khong_de_len_bien_da_dat_san(self, kag, monkeypatch):
+        monkeypatch.setenv("HF_HOME", "/da/co/san")
+        kag.set_cache_env()
+        import os
+
+        assert os.environ["HF_HOME"] == "/da/co/san"
+
+    def test_tien_trinh_con_thua_huong_cung_cache(self, kag, monkeypatch):
+        """launch() copy os.environ, nên con phải thấy đúng cache mà cha đã làm ấm."""
+        import os
+
+        monkeypatch.delenv("HF_HOME", raising=False)
+        kag.set_cache_env()
+
+        captured = {}
+
+        class FakePopen:
+            def __init__(self, argv, env=None, **kwargs):
+                captured["env"] = env
+                captured["argv"] = argv
+
+        monkeypatch.setattr(kag.subprocess, "Popen", FakePopen)
+        kag.CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        kag.launch("01_shot_detect.py", 1, 2, 1, ["--device", "cuda"])
+
+        assert captured["env"]["HF_HOME"] == os.environ["HF_HOME"]
+        assert captured["env"]["CUDA_VISIBLE_DEVICES"] == "1"
+        assert "--shard" in captured["argv"] and "1/2" in captured["argv"]
+
+    def test_warm_caches_khong_lam_chet_khi_thieu_thu_vien(self, kag, monkeypatch):
+        """Tải sẵn thất bại thì chỉ cảnh báo — tiến trình con vẫn tự tải được."""
+        kag.set_cache_env()
+        kag.write_config(Path("/x"))
+        kag.warm_caches(skip_ocr=False)      # máy dev không có open_clip/easyocr

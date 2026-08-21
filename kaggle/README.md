@@ -111,3 +111,12 @@ Xem thêm mục "Chia việc cho nhiều người" trong [RUNBOOK.md](../RUNBOOK
 | `Không tìm thấy video nào trong /kaggle/input` | chưa gắn dataset vào Input |
 | Hết dung lượng `/kaggle/working` | giới hạn 20 GB — chạy ít video hơn mỗi phiên, hoặc thêm `--skip-ocr` rồi chạy OCR ở phiên riêng |
 | `moov atom not found` | video trong dataset bị hỏng — xem mục A.1 trong RUNBOOK |
+| `temp.zip: No such file or directory` | hai tiến trình đua nhau tải model — đã sửa, `git pull` lấy bản mới |
+
+## Vì sao phải tải weights trước
+
+Trước khi chạy song song, script tải sẵn CLIP, SigLIP2 và EasyOCR **ở tiến trình cha**. Không làm vậy thì hai tiến trình con cùng thấy cache trống và cùng tải về một chỗ.
+
+EasyOCR là ca hỏng nặng nhất: nó tải về một file tên **cố định** `temp.zip`, giải nén xong thì `os.remove()`. Tiến trình chậm hơn gọi `remove` trên file vừa bị xoá và chết với `FileNotFoundError`.
+
+Bước tải sẵn mất vài phút ở lần chạy đầu, sau đó cache nằm trong `/kaggle/working/.cache` nên các lần sau (và cả hai GPU) đều dùng lại.
