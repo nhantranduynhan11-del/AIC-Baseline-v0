@@ -152,6 +152,76 @@ def gather_embeddings(
     return out
 
 
+def iter_video_blocks(
+    manifest_path: str | Path,
+    keyframes_dir: str | Path,
+    filename: str,
+    n_manifest: int,
+):
+    """Yield embedding cua TUNG VIDEO, dung thu tu manifest.
+
+    Cung phep kiem tra nhu gather_embeddings nhung khong dung ca mang dich, nen
+    dinh bo nho chi bang mot video thay vi ca bo. Dung cho may it RAM.
+    """
+    keyframes_dir = Path(keyframes_dir)
+    current_id: str | None = None
+    cursor = 0
+    written = 0
+    dim = 0
+    current: np.ndarray | None = None
+
+    def close_video() -> None:
+        if current is not None and cursor != len(current):
+            raise AssertionError(
+                f"{current_id}: manifest dung {cursor} hang nhung {filename} co "
+                f"{len(current)} hang. Chay lai buoc encode cho video nay."
+            )
+
+    for entry in iter_manifest(manifest_path):
+        if entry.video_id != current_id:
+            close_video()
+            if current is not None:
+                yield current            # tra ca video vua duyet xong
+            path = keyframes_dir / entry.video_id / filename
+            if not path.exists():
+                raise FileNotFoundError(f"Thieu {path}. Chay buoc encode truoc.")
+            current = np.load(path)
+            if dim and current.shape[1] != dim:
+                raise ValueError(f"{entry.video_id}: dim {current.shape[1]} != {dim}")
+            dim = current.shape[1]
+            current_id = entry.video_id
+            cursor = 0
+        cursor += 1
+        written += 1
+
+    close_video()
+    if current is not None:
+        yield current
+    if written != n_manifest:
+        raise AssertionError(f"duyet duoc {written} hang nhung manifest co {n_manifest} dong")
+
+
+def iter_array_chunks(path: str | Path, n_manifest: int, chunk: int = 50_000):
+    """Yield tung khoi cua mot file .npy lon, doc bang mmap.
+
+    mmap_mode="r" khong nap ca file vao RAM; moi khoi duoc sao chep ra rieng roi
+    tha ngay, nen doc file 0.8 GB chi ton bo nho bang mot khoi.
+    """
+    array = np.load(path, mmap_mode="r")
+    if len(array) != n_manifest:
+        raise AssertionError(
+            f"{Path(path).name} co {len(array)} hang nhung manifest co {n_manifest} dong. "
+            "Build lai manifest."
+        )
+    for start in range(0, len(array), chunk):
+        yield np.array(array[start : start + chunk], dtype=np.float32)
+
+
+def embedding_dim(path: str | Path) -> int:
+    """So chieu cua file .npy ma khong nap noi dung."""
+    return int(np.load(path, mmap_mode="r").shape[1])
+
+
 def load_clip_embeddings(clip_emb_path: str | Path, n_manifest: int) -> np.ndarray:
     """Doc lai embedding CLIP tu A.2. KHONG encode lai - do la ca diem cua A.2."""
     path = Path(clip_emb_path)
@@ -176,29 +246,55 @@ def build_indexes(
     faiss_siglip_path: str | Path,
     index_meta_path: str | Path,
 ) -> dict[str, Any]:
-    """Build ca hai FAISS index tu cung mot manifest, roi ghi meta de assert sau nay."""
+    """Build ca hai FAISS index tu cung mot manifest, roi ghi meta de assert sau nay.
+
+    Build TUNG INDEX MOT roi tha ngay, va nap embedding theo dong thay vi nap ca
+    bo. O 255k keyframe, giu ca 4 mang cung luc la 3.4 GB; lam theo dong thi dinh
+    bo nho chi con bang index lon nhat (~1 GB).
+    """
+    import gc
+
     n_manifest = sum(1 for _ in iter_manifest(manifest_path))
     if n_manifest == 0:
         raise ValueError(f"{manifest_path} rong. Chay A.2 truoc.")
 
-    clip_emb = load_clip_embeddings(clip_emb_path, n_manifest)
-    siglip_emb = gather_embeddings(manifest_path, keyframes_dir, SIGLIP_EMB, n_manifest)
-    if len(siglip_emb) != n_manifest:
-        raise AssertionError(
-            f"SigLIP2 co {len(siglip_emb)} vector nhung manifest co {n_manifest} dong"
+    if not Path(clip_emb_path).exists():
+        raise FileNotFoundError(
+            f"Chua co {clip_emb_path}. Chay `02_keyframe.py --build-manifest` truoc."
         )
 
-    clip_index = faiss_store.build_flat_ip(clip_emb, name="clip")
-    faiss_store.save_index(clip_index, faiss_clip_path)
+    dims: dict[str, int] = {}
+    ntotal: dict[str, int] = {}
 
-    siglip_index = faiss_store.build_flat_ip(siglip_emb, name="siglip2")
-    faiss_store.save_index(siglip_index, faiss_siglip_path)
+    # CLIP: doc lai file da co tu A.2 bang mmap, KHONG encode lai.
+    dims["clip"] = embedding_dim(clip_emb_path)
+    index = faiss_store.build_flat_ip_streaming(
+        dims["clip"], iter_array_chunks(clip_emb_path, n_manifest), name="clip"
+    )
+    ntotal["clip"] = int(index.ntotal)
+    faiss_store.save_index(index, faiss_clip_path)
+    del index
+    gc.collect()
 
-    ntotal = {"clip": int(clip_index.ntotal), "siglip2": int(siglip_index.ntotal)}
+    # SigLIP2: gom tung video theo dung thu tu manifest.
+    dims["siglip2"] = embedding_dim(
+        Path(keyframes_dir) / next(iter_manifest(manifest_path)).video_id / SIGLIP_EMB
+    )
+    index = faiss_store.build_flat_ip_streaming(
+        dims["siglip2"],
+        iter_video_blocks(manifest_path, keyframes_dir, SIGLIP_EMB, n_manifest),
+        name="siglip2",
+    )
+    ntotal["siglip2"] = int(index.ntotal)
+    faiss_store.save_index(index, faiss_siglip_path)
+    del index
+    gc.collect()
+
+    for name, total in ntotal.items():
+        if total != n_manifest:
+            raise AssertionError(
+                f"{name}: index co {total} vector nhung manifest co {n_manifest} dong"
+            )
+
     write_index_meta(index_meta_path, n_manifest=n_manifest, ntotal=ntotal)
-
-    return {
-        "n_manifest": n_manifest,
-        "ntotal": ntotal,
-        "dim": {"clip": int(clip_emb.shape[1]), "siglip2": int(siglip_emb.shape[1])},
-    }
+    return {"n_manifest": n_manifest, "ntotal": ntotal, "dim": dims}

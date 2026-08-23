@@ -51,6 +51,29 @@ def build_flat_ip(embeddings: np.ndarray, *, name: str = "index"):
     return index
 
 
+def build_flat_ip_streaming(dim: int, blocks, *, name: str = "index"):
+    """Nhu build_flat_ip nhung nhan tung KHOI mot, khong can ca mang trong RAM.
+
+    IndexFlatIP tu giu ban sao cua vector, nen neu dua vao ca mang N x D thi co
+    hai ban cung ton tai: mang nguon va ban trong index. O 255k x 1024 float32
+    thi do la 2 GB thay vi 1 GB. Dua tung khoi roi tha khoi do ngay thi dinh bo
+    nho chi con bang chinh index.
+
+    blocks: iterable cac mang (m_i, D) - tong m_i la so vector cuoi cung, va
+    THU TU cac khoi quyet dinh thu tu row cua index.
+    """
+    import faiss
+
+    index = faiss.IndexFlatIP(dim)
+    for block in blocks:
+        block = np.ascontiguousarray(block, dtype=np.float32)
+        if block.ndim != 2 or block.shape[1] != dim:
+            raise ValueError(f"{name}: khoi co shape {block.shape}, can (m, {dim})")
+        assert_normalized(block, name)
+        index.add(block)
+    return index
+
+
 def save_index(index, path: str | Path) -> None:
     import faiss
 
