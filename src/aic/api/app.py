@@ -98,6 +98,7 @@ class SearchResponse(BaseModel):
     hits: list[SearchHit]
     n_hits: int
     ocr_filter: dict[str, Any] | None = None
+    translated_query: str | None = None
 
 
 class ExportItem(BaseModel):
@@ -188,6 +189,7 @@ def search(req: SearchRequest, state: AppState = Depends(get_state)) -> SearchRe
         hits=[SearchHit(**{k: v for k, v in row.items() if k != "path"}) for row in rows],
         n_hits=len(rows),
         ocr_filter=filter_info,
+        translated_query=getattr(state.encoder, "last_translated_text", None),
     )
 
 

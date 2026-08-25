@@ -48,7 +48,26 @@ class QueryEncoder:
     def encode_text(self, text: str) -> dict[str, np.ndarray]:
         if not text or not text.strip():
             raise ValueError("Query text rong")
-        return {key: enc.encode_texts([text])[0] for key, enc in self.encoders.items()}
+        
+        try:
+            import translators as ts
+            translated = None
+            try:
+                translated = ts.translate_text(text, translator='google', from_language='vi', to_language='en')
+            except Exception:
+                pass
+            
+            if not translated:
+                translated = ts.translate_text(text, translator='bing', from_language='vi', to_language='en')
+
+            print(f"[QueryEncoder] Dich: '{text}' -> '{translated}'")
+            text_to_encode = translated if translated else text
+        except Exception as e:
+            print(f"[QueryEncoder] Loi dich: {e}. Dung nguyen ban.")
+            text_to_encode = text
+
+        self.last_translated_text = text_to_encode
+        return {key: enc.encode_texts([text_to_encode])[0] for key, enc in self.encoders.items()}
 
     def encode_image(self, image_rgb: np.ndarray) -> dict[str, np.ndarray]:
         """image_rgb: numpy uint8 HxWx3 RGB (KHONG phai BGR cua cv2)."""
@@ -57,6 +76,7 @@ class QueryEncoder:
         return {key: enc.encode_images([image_rgb])[0] for key, enc in self.encoders.items()}
 
     def encode(self, text: str | None = None, image_rgb: np.ndarray | None = None):
+        self.last_translated_text = None
         if (text is None) == (image_rgb is None):
             raise ValueError("Truyen dung mot trong hai: text hoac image_rgb")
         return self.encode_text(text) if text is not None else self.encode_image(image_rgb)

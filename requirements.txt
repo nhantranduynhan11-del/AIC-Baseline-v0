@@ -40,3 +40,4 @@ easyocr                 # CHOT. Chay tren torch da co; lan dau se tai model ve ~
 # --- Chua kich hoat ---
 # Object detection (A.5): hoan
 # ASR (B.2), LLM query enhancement (B.4): giai doan sau
+translators

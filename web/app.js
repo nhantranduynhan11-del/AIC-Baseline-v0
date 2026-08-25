@@ -91,6 +91,9 @@ async function doSearch(imageIdx = null) {
     S.cursor = data.hits.length ? 0 : -1;
     const ms = Math.round(performance.now() - t0);
     let note = `${data.n_hits} kết quả · ${ms}ms`;
+    if (data.translated_query && data.translated_query !== query) {
+      note += ` · Dịch: "${data.translated_query}"`;
+    }
     if (data.ocr_filter) {
       note += ` · OCR khớp ${data.ocr_filter.n_frames} keyframe`;
       if (data.ocr_filter.n_unknown) note += ` (${data.ocr_filter.n_unknown} lệch manifest)`;
