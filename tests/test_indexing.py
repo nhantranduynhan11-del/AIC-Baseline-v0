@@ -224,3 +224,62 @@ class TestBuildTheoDong:
         idx = faiss_store.load_index(tmp_path / "siglip.faiss")
         for row in range(5):
             np.testing.assert_allclose(idx.reconstruct(row), siglip[row], rtol=1e-5)
+
+
+class TestGhiVectorRaThuMucKhac:
+    """Thư mục ảnh có thể CHỈ ĐỌC (Kaggle: /kaggle/input), phải ghi .npy nơi khác.
+
+    Chép cả bộ ảnh sang chỗ ghi được từng làm hỏng một phiên Kaggle 7 giờ:
+    14 GB ảnh + 4 GB weights vượt hạn mức 20 GB của /kaggle/working.
+    """
+
+    class FakeEncoder:
+        dim = 4
+
+        def encode_images(self, images):
+            return normalized(len(images), 4, 7)
+
+    def _video(self, root, video_id, frames):
+        from PIL import Image
+
+        d = root / video_id
+        d.mkdir(parents=True, exist_ok=True)
+        for f in frames:
+            Image.new("RGB", (8, 8)).save(d / f"{f}.jpg", "JPEG")
+        kf.write_keyframe_meta(d / kf.KEYFRAME_META, {
+            "version": kf.KEYFRAME_META_VERSION, "video_id": video_id, "fps": 25.0,
+            "sample_every": 8, "l2_threshold": 0.4, "clip_model": "x", "dim": 4,
+            "n_sampled": 9, "n_keyframes": len(frames),
+            "keyframes": [{"frame_idx": f, "shot_id": 1, "pts_time": f / 25.0,
+                           "path": f"{video_id}/{f}.jpg"} for f in frames],
+        })
+
+    def test_ghi_npy_sang_out_dir_khong_dung_thu_muc_anh(self, tmp_path):
+        images = tmp_path / "keyframes"
+        emb = tmp_path / "emb"
+        self._video(images, "L25_V001", [0, 8, 16])
+
+        n = indexing.encode_video_images(
+            self.FakeEncoder(), images, "L25_V001", indexing.SIGLIP_EMB, out_dir=emb
+        )
+        assert n == 3
+        assert (emb / "L25_V001" / indexing.SIGLIP_EMB).exists()
+        assert not (images / "L25_V001" / indexing.SIGLIP_EMB).exists()
+
+    def test_khong_truyen_out_dir_thi_ghi_canh_anh(self, tmp_path):
+        images = tmp_path / "keyframes"
+        self._video(images, "L25_V001", [0, 8])
+
+        indexing.encode_video_images(
+            self.FakeEncoder(), images, "L25_V001", indexing.SIGLIP_EMB
+        )
+        assert (images / "L25_V001" / indexing.SIGLIP_EMB).exists()
+
+    def test_tu_tao_thu_muc_dich(self, tmp_path):
+        images = tmp_path / "keyframes"
+        self._video(images, "L25_V001", [0])
+        emb = tmp_path / "chua" / "ton" / "tai"
+        indexing.encode_video_images(
+            self.FakeEncoder(), images, "L25_V001", indexing.SIGLIP_EMB, out_dir=emb
+        )
+        assert (emb / "L25_V001" / indexing.SIGLIP_EMB).exists()

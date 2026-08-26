@@ -35,6 +35,7 @@ def encode_video_images(
     video_id: str,
     out_name: str,
     *,
+    out_dir: str | Path | None = None,
     batch_size: int = 32,
 ) -> int:
     """Encode toan bo anh keyframe cua mot video, ghi ra <video_id>/<out_name>.
@@ -46,11 +47,16 @@ def encode_video_images(
     Duong nay can khi anh keyframe da co san ma chua co vector - vi du sau khi
     gop them keyframe tu mot phuong phap khac (DAKE), hoac encode lai bang model
     khac. Buoc A.2 chi sinh vector CLIP luc trich tu video, khong lam viec nay.
+
+    out_dir: noi ghi .npy, mac dinh la ngay canh anh. Tach ra khi thu muc anh
+    CHI DOC - vi du tren Kaggle anh nam o /kaggle/input. Khong co tham so nay thi
+    phai chep ca bo anh sang cho ghi duoc, ton bang dung ca bo anh.
     """
     import cv2
 
     video_dir = Path(keyframes_dir) / video_id
     meta = read_keyframe_meta(video_dir / KEYFRAME_META)
+    dest = Path(out_dir) / video_id if out_dir is not None else video_dir
 
     feats: list[np.ndarray] = []
     buffer: list[np.ndarray] = []
@@ -79,25 +85,26 @@ def encode_video_images(
         raise AssertionError(
             f"{video_id}: encode duoc {len(array)} vector nhung co {meta['n_keyframes']} keyframe"
         )
-    np.save(video_dir / out_name, array)
+    dest.mkdir(parents=True, exist_ok=True)
+    np.save(dest / out_name, array)
     return len(array)
 
 
-def encode_siglip_video(encoder, keyframes_dir, video_id, *, batch_size: int = 32) -> int:
+def encode_siglip_video(encoder, keyframes_dir, video_id, *, out_dir=None, batch_size: int = 32) -> int:
     """Encode SigLIP2 cho mot video -> <video_id>/siglip2.npy."""
     return encode_video_images(
-        encoder, keyframes_dir, video_id, SIGLIP_EMB, batch_size=batch_size
+        encoder, keyframes_dir, video_id, SIGLIP_EMB, out_dir=out_dir, batch_size=batch_size
     )
 
 
-def encode_clip_video(encoder, keyframes_dir, video_id, *, batch_size: int = 32) -> int:
+def encode_clip_video(encoder, keyframes_dir, video_id, *, out_dir=None, batch_size: int = 32) -> int:
     """Encode CLIP cho mot video -> <video_id>/clip.npy.
 
     Binh thuong clip.npy do A.2 sinh ra va TAI SU DUNG, khong encode lai. Ham nay
     danh cho truong hop tap keyframe thay doi sau A.2 nen vector cu khong con khop.
     """
     return encode_video_images(
-        encoder, keyframes_dir, video_id, KEYFRAME_EMB, batch_size=batch_size
+        encoder, keyframes_dir, video_id, KEYFRAME_EMB, out_dir=out_dir, batch_size=batch_size
     )
 
 

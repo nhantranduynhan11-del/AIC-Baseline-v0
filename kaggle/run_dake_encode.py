@@ -55,6 +55,7 @@ use_utf8()
 WORK = Path("/kaggle/working")
 DATA = WORK / "aic-data"
 CONFIG = WORK / "kaggle_dake.yaml"
+EMB_DIR = DATA / "emb"          # .npy ghi o day, tach khoi anh chi doc
 DEFAULT_DEADLINE_HOURS = 8.5
 
 
@@ -116,23 +117,30 @@ def write_config(keyframes_dir: Path) -> Path:
     return CONFIG
 
 
-def stage_keyframes(src: Path) -> Path:
-    """Chép ảnh keyframe từ /kaggle/input (chỉ đọc) sang /kaggle/working.
+def report_disk(keyframes_dir: Path) -> None:
+    """In ngân sách đĩa. /kaggle/working giới hạn 20 GB và vượt là mất cả phiên.
 
-    Các bước encode chỉ ĐỌC ảnh nhưng GHI .npy vào cùng thư mục video, nên thư
-    mục phải ghi được.
+    Ảnh KHÔNG được chép sang working: chúng ở lại /kaggle/input (chỉ đọc, không
+    tính vào hạn mức) và .npy ghi sang EMB_DIR. Chép ảnh sang working từng làm
+    hỏng một phiên 7 giờ vì bộ ảnh 14 GB cộng cache weights vượt luôn 20 GB.
     """
-    dst = DATA / "keyframes"
-    if dst.exists() and any(dst.iterdir()):
-        print(f"Đã có {len(list(dst.iterdir()))} video trong {dst}, bỏ qua bước chép")
-        return dst
+    n_img = sum(1 for _ in keyframes_dir.rglob("*.jpg"))
+    size = sum(f.stat().st_size for f in keyframes_dir.rglob("*.jpg"))
+    emb = n_img * (768 + 1024) * 4
+    print("\nNgân sách /kaggle/working (giới hạn 20 GB):")
+    print(f"  ảnh ở /kaggle/input (chỉ đọc, KHÔNG tính) {size/1e9:>6.2f} GB")
+    print(f"  cache weights                             {4.0:>6.2f} GB")
+    print(f"  .npy CLIP + SigLIP2                       {emb/1e9:>6.2f} GB")
+    print(f"  gói tar.gz cuối                           {emb/1e9:>6.2f} GB")
+    print(f"  {'-'*44}")
+    print(f"  tổng dự kiến                              {(4e9 + 2*emb)/1e9:>6.2f} GB")
 
-    print(f"Chép keyframe từ {src} -> {dst} ...")
-    t0 = time.time()
-    shutil.copytree(src, dst, dirs_exist_ok=True)
-    n_img = sum(1 for _ in dst.rglob("*.jpg"))
-    print(f"  {len(list(dst.iterdir()))} video, {n_img:,} ảnh, {time.time() - t0:.0f}s")
-    return dst
+    free = shutil.disk_usage(WORK).free
+    need = 4e9 + 2 * emb
+    print(f"  đĩa còn trống                             {free/1e9:>6.2f} GB")
+    if free < need * 1.2:
+        print("  ! Sát hạn mức. Cân nhắc --skip-ocr rồi chạy OCR ở phiên riêng.",
+              file=sys.stderr)
 
 
 def set_cache_env() -> None:
@@ -263,10 +271,10 @@ def main() -> int:
 
     DATA.mkdir(parents=True, exist_ok=True)
     set_cache_env()
-    keyframes_dir = stage_keyframes(src)
+    keyframes_dir = src                 # ĐỌC THẲNG từ /kaggle/input, không chép
     n_videos = len([p for p in keyframes_dir.iterdir() if p.is_dir()])
-    n_images = sum(1 for _ in keyframes_dir.rglob("*.jpg"))
-    print(f"{n_videos} video, {n_images:,} ảnh keyframe")
+    print(f"{n_videos} video, ảnh đọc thẳng từ {keyframes_dir}")
+    report_disk(keyframes_dir)
 
     try:
         import torch
@@ -283,7 +291,7 @@ def main() -> int:
     warm_caches(args.skip_ocr)
 
     deadline = time.time() + args.deadline_hours * 3600
-    common = ["--device", "cuda"]
+    common = ["--device", "cuda", "--emb-dir", str(EMB_DIR)]
     if args.limit:
         common += ["--limit", str(args.limit)]
 
@@ -305,7 +313,7 @@ def main() -> int:
             break
 
     print(f"\nTổng thời gian: {(time.time() - t0) / 3600:.2f} giờ")
-    pack(keyframes_dir, shards)
+    pack(shards)
     return 0
 
 

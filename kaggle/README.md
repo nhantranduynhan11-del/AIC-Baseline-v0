@@ -169,6 +169,30 @@ Xem thêm mục "Chia việc cho nhiều người" trong [RUNBOOK.md](../RUNBOOK
 | `temp.zip: No such file or directory` | hai tiến trình đua nhau tải model — đã sửa, `git pull` lấy bản mới |
 | Output không có `manifest.csv` | **đúng như thiết kế** — Kaggle không chạy `--build-manifest`. Chạy nó ở bước 4 trên máy gộp |
 | `05_thumbnails.py` báo thiếu manifest | đã sửa: giờ nó đọc `keyframes.json` khi chưa có manifest. `git pull` |
+| `tried to use more disk space than is available` | xem mục dưới — đừng chép ảnh vào `/kaggle/working` |
+
+## Hạn mức đĩa 20 GB của /kaggle/working
+
+`/kaggle/input` **không** tính vào hạn mức, `/kaggle/working` thì có. Vượt là Kaggle giết phiên và mất sạch, kể cả đã chạy 7 giờ.
+
+Sai lầm dễ mắc: chép ảnh keyframe từ Input sang Working để ghi `.npy` nằm cạnh ảnh. Với 72.202 ảnh L25 đó là **14,31 GB**, cộng 4 GB cache weights là chạm trần trước cả khi encode xong.
+
+Cách đúng — đọc ảnh thẳng từ Input, ghi `.npy` sang thư mục riêng:
+
+```bash
+python scripts/03_build_index.py --encode --emb-dir /kaggle/working/emb
+```
+
+Ngân sách còn lại chỉ ~5 GB:
+
+| | |
+|---|---|
+| ảnh ở `/kaggle/input` | không tính |
+| cache weights | 4,00 GB |
+| `.npy` CLIP + SigLIP2 | 0,52 GB |
+| gói tar.gz | 0,52 GB |
+
+`run_dake_encode.py` in bảng này ngay lúc khởi động và cảnh báo nếu sát hạn mức.
 
 ## Vì sao phải tải weights trước
 

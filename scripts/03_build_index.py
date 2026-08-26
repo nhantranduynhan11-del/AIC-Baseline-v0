@@ -39,6 +39,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="A.3 Indexing (SigLIP2 + 2 FAISS index)")
     p.add_argument("--config", default=None)
     p.add_argument("--keyframes", default=None, help="Ghi de paths.keyframes")
+    p.add_argument("--emb-dir", default=None,
+                   help="Ghi .npy vao thu muc khac thay vi canh anh (khi thu muc anh chi doc)")
     p.add_argument("--device", default=None, help="auto | cuda | cpu")
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--encode", action="store_true", help="Encode SigLIP2 cho tung video")
@@ -87,10 +89,11 @@ def run_encode(cfg, keyframes_dir: Path, args, model: str = "siglip2") -> int:
     from aic.preprocess.keyframe import KEYFRAME_EMB
 
     out_name = indexing.SIGLIP_EMB if model == "siglip2" else KEYFRAME_EMB
+    emb_root = Path(args.emb_dir) if args.emb_dir else keyframes_dir
     todo = (
         video_ids
         if args.overwrite
-        else [v for v in video_ids if not (keyframes_dir / v / out_name).exists()]
+        else [v for v in video_ids if not (emb_root / v / out_name).exists()]
     )
     device = args.device or cfg.runtime.device
     batch_size = args.batch_size or cfg.keyframe.batch_size
@@ -121,7 +124,8 @@ def run_encode(cfg, keyframes_dir: Path, args, model: str = "siglip2") -> int:
         try:
             t1 = time.time()
             n = indexing.encode_video_images(
-                encoder, keyframes_dir, video_id, out_name, batch_size=batch_size
+                encoder, keyframes_dir, video_id, out_name,
+                out_dir=(args.emb_dir or None), batch_size=batch_size,
             )
             total += n
             print(f"[{i}/{len(todo)}] {video_id}: {n} vector, {time.time() - t1:.1f}s")
