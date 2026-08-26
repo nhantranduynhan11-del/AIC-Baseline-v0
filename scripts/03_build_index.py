@@ -42,6 +42,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--device", default=None, help="auto | cuda | cpu")
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--encode", action="store_true", help="Encode SigLIP2 cho tung video")
+    p.add_argument("--encode-clip", action="store_true",
+                   help="Encode LAI CLIP tu anh keyframe (chi dung khi tap keyframe da doi sau A.2)")
     p.add_argument("--build", action="store_true", help="Build 2 FAISS index tu manifest")
     p.add_argument("--overwrite", action="store_true", help="Encode lai ca video da co siglip2.npy")
     p.add_argument("--limit", type=int, default=None)
@@ -52,15 +54,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if not args.encode and not args.build:
-        print("Can it nhat mot trong --encode / --build", file=sys.stderr)
+    if not args.encode and not args.build and not args.encode_clip:
+        print("Can it nhat mot trong --encode / --encode-clip / --build", file=sys.stderr)
         return 2
 
     cfg = load_config(args.config) if args.config else load_config()
     keyframes_dir = Path(args.keyframes or cfg.paths.keyframes)
 
+    if args.encode_clip:
+        code = run_encode(cfg, keyframes_dir, args, model="clip")
+        if code != 0:
+            return code
     if args.encode:
-        code = run_encode(cfg, keyframes_dir, args)
+        code = run_encode(cfg, keyframes_dir, args, model="siglip2")
         if code != 0:
             return code
     if args.build:
@@ -68,7 +74,7 @@ def main() -> int:
     return 0
 
 
-def run_encode(cfg, keyframes_dir: Path, args) -> int:
+def run_encode(cfg, keyframes_dir: Path, args, model: str = "siglip2") -> int:
     video_ids = select_shard(
         sorted(p.parent.name for p in keyframes_dir.glob(f"*/{KEYFRAME_META}")), args.shard
     )
@@ -78,27 +84,32 @@ def run_encode(cfg, keyframes_dir: Path, args) -> int:
         print(f"Khong tim thay keyframe nao trong {keyframes_dir}. Chay A.2 truoc.", file=sys.stderr)
         return 1
 
+    from aic.preprocess.keyframe import KEYFRAME_EMB
+
+    out_name = indexing.SIGLIP_EMB if model == "siglip2" else KEYFRAME_EMB
     todo = (
         video_ids
         if args.overwrite
-        else [v for v in video_ids if not (keyframes_dir / v / indexing.SIGLIP_EMB).exists()]
+        else [v for v in video_ids if not (keyframes_dir / v / out_name).exists()]
     )
     device = args.device or cfg.runtime.device
     batch_size = args.batch_size or cfg.keyframe.batch_size
-    print(f"{len(video_ids)} video, {len(todo)} can encode SigLIP2 (device={device})")
+    print(f"{len(video_ids)} video, {len(todo)} can encode {model} -> {out_name} (device={device})")
     if not todo:
         return 0
 
-    print(f"Dang load SigLIP2 {cfg.models.siglip2.name} ({cfg.models.siglip2.pretrained})...")
-    from aic.models.siglip_encoder import SiglipEncoder
+    spec = cfg.models.siglip2 if model == "siglip2" else cfg.models.clip
+    print(f"Dang load {model} {spec.name} ({spec.pretrained})...")
+    if model == "siglip2":
+        from aic.models.siglip_encoder import SiglipEncoder as Encoder
+    else:
+        from aic.models.clip_encoder import ClipEncoder as Encoder
 
-    encoder = SiglipEncoder(
-        device=device, name=cfg.models.siglip2.name, pretrained=cfg.models.siglip2.pretrained
-    )
+    encoder = Encoder(device=device, name=spec.name, pretrained=spec.pretrained)
     print(f"Model san sang tren {encoder.device}, dim={encoder.dim}")
-    if encoder.dim != cfg.models.siglip2.dim:
+    if encoder.dim != spec.dim:
         print(
-            f"  ! dim thuc te {encoder.dim} khac config ({cfg.models.siglip2.dim}) "
+            f"  ! dim thuc te {encoder.dim} khac config ({spec.dim}) "
             "- cap nhat configs/default.yaml",
             file=sys.stderr,
         )
@@ -109,8 +120,8 @@ def run_encode(cfg, keyframes_dir: Path, args) -> int:
     for i, video_id in enumerate(todo, 1):
         try:
             t1 = time.time()
-            n = indexing.encode_siglip_video(
-                encoder, keyframes_dir, video_id, batch_size=batch_size
+            n = indexing.encode_video_images(
+                encoder, keyframes_dir, video_id, out_name, batch_size=batch_size
             )
             total += n
             print(f"[{i}/{len(todo)}] {video_id}: {n} vector, {time.time() - t1:.1f}s")

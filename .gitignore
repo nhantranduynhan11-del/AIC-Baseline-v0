@@ -21,3 +21,4 @@ configs/local.yaml
 
 # Goi phan phoi - khong commit
 dist/
+logs/

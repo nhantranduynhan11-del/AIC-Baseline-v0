@@ -23,23 +23,29 @@ from typing import Any
 import numpy as np
 
 from aic.manifest import iter_manifest, write_index_meta
-from aic.preprocess.keyframe import KEYFRAME_META, read_keyframe_meta
+from aic.preprocess.keyframe import KEYFRAME_EMB, KEYFRAME_META, read_keyframe_meta
 from aic.store import faiss_store
 
 SIGLIP_EMB = "siglip2.npy"
 
 
-def encode_siglip_video(
+def encode_video_images(
     encoder,
     keyframes_dir: str | Path,
     video_id: str,
+    out_name: str,
     *,
     batch_size: int = 32,
 ) -> int:
-    """Encode SigLIP2 cho toan bo keyframe cua mot video. Tra ve so vector.
+    """Encode toan bo anh keyframe cua mot video, ghi ra <video_id>/<out_name>.
 
-    Doc DUNG thu tu keyframe trong keyframes.json cua A.2 - do cung la thu tu
-    cac dong cua video nay trong manifest.
+    Doc DUNG thu tu keyframe trong keyframes.json - do cung la thu tu cac dong
+    cua video nay trong manifest. Dung chung cho ca CLIP lan SigLIP2: chi khac
+    encoder va ten file dau ra.
+
+    Duong nay can khi anh keyframe da co san ma chua co vector - vi du sau khi
+    gop them keyframe tu mot phuong phap khac (DAKE), hoac encode lai bang model
+    khac. Buoc A.2 chi sinh vector CLIP luc trich tu video, khong lam viec nay.
     """
     import cv2
 
@@ -73,8 +79,26 @@ def encode_siglip_video(
         raise AssertionError(
             f"{video_id}: encode duoc {len(array)} vector nhung co {meta['n_keyframes']} keyframe"
         )
-    np.save(video_dir / SIGLIP_EMB, array)
+    np.save(video_dir / out_name, array)
     return len(array)
+
+
+def encode_siglip_video(encoder, keyframes_dir, video_id, *, batch_size: int = 32) -> int:
+    """Encode SigLIP2 cho mot video -> <video_id>/siglip2.npy."""
+    return encode_video_images(
+        encoder, keyframes_dir, video_id, SIGLIP_EMB, batch_size=batch_size
+    )
+
+
+def encode_clip_video(encoder, keyframes_dir, video_id, *, batch_size: int = 32) -> int:
+    """Encode CLIP cho mot video -> <video_id>/clip.npy.
+
+    Binh thuong clip.npy do A.2 sinh ra va TAI SU DUNG, khong encode lai. Ham nay
+    danh cho truong hop tap keyframe thay doi sau A.2 nen vector cu khong con khop.
+    """
+    return encode_video_images(
+        encoder, keyframes_dir, video_id, KEYFRAME_EMB, batch_size=batch_size
+    )
 
 
 def video_ids_in_manifest(manifest_path: str | Path) -> list[str]:
