@@ -20,6 +20,7 @@ const S = {
   neighbors: [],       // dai lan can cua S.neighborsFor
   neighborsFor: null,  // dai tren thuoc ve keyframe nao
   busy: false,
+  odFilters: [],       // [{label: "dog", count: 1}]
 };
 
 const $ = (id) => document.getElementById(id);
@@ -79,6 +80,10 @@ async function doSearch(imageIdx = null) {
     body.ocr_min_confidence = Number($("ocr-conf").value);
   }
 
+  if (S.odFilters && S.odFilters.length > 0) {
+    body.od_filters = S.odFilters;
+  }
+
   S.busy = true;
   const s = $("status");
   const before = s.textContent;
@@ -133,10 +138,41 @@ function renderGrid() {
     if (i === S.cursor) card.classList.add("cursor");
     if (pickedIdx.has(hit.idx)) card.classList.add("picked");
 
-    const img = el("img");
-    img.src = `/thumb/${hit.idx}`;
-    img.loading = "lazy";
-    img.alt = `${hit.video_id} frame ${hit.frame_idx}`;
+    let mediaElement;
+    if (hit.sequence_idxs && hit.sequence_idxs.length > 1) {
+      card.classList.add("seq-card");
+      // Cố gắng mở rộng card chiếm nhiều cột lưới, tối đa 3 cột để không phá grid
+      const spanCols = Math.min(hit.sequence_idxs.length, 3);
+      card.style.gridColumn = `span ${spanCols}`;
+
+      mediaElement = el("div", "seq-images");
+      hit.sequence_idxs.forEach((seqIdx) => {
+        const simg = el("img");
+        simg.src = `/thumb/${seqIdx}`;
+        simg.loading = "lazy";
+        simg.alt = `frame ${seqIdx}`;
+        simg.title = `frame ${seqIdx} (nhấp để xem chi tiết frame này)`;
+        if (seqIdx === S.detailIdx) {
+          simg.classList.add("active-seq-frame");
+        }
+        simg.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          S.cursor = i;
+          // Update active sub-frame highlight without full grid re-render to avoid scrollbar jumps
+          document.querySelectorAll(".seq-images img.active-seq-frame").forEach((el) => el.classList.remove("active-seq-frame"));
+          simg.classList.add("active-seq-frame");
+          document.querySelectorAll(".card.cursor").forEach((c) => c.classList.remove("cursor"));
+          card.classList.add("cursor");
+          showDetail(seqIdx);
+        });
+        mediaElement.append(simg);
+      });
+    } else {
+      mediaElement = el("img");
+      mediaElement.src = `/thumb/${hit.idx}`;
+      mediaElement.loading = "lazy";
+      mediaElement.alt = `${hit.video_id} frame ${hit.frame_idx}`;
+    }
 
     const rank = el("div", "rank");
     rank.textContent = `#${hit.rank}`;
@@ -150,7 +186,7 @@ function renderGrid() {
     right.textContent = hit.frame_idx;
     meta.append(left, right);
 
-    card.append(img, rank, tick, meta);
+    card.append(mediaElement, rank, tick, meta);
     card.addEventListener("click", () => { S.cursor = i; renderGrid(); showDetail(hit.idx); });
     card.addEventListener("dblclick", () => togglePick(hit));
     grid.append(card);
@@ -189,20 +225,43 @@ async function showDetail(idx) {
   const box = $("detail");
   box.textContent = "";
 
-  const hit = S.hits.find((h) => h.idx === idx);   // co the undefined: keyframe lan can
+  const hit = S.hits.find((h) => h.idx === idx);
+  const parentHit = hit || S.hits.find((h) => h.sequence_idxs && h.sequence_idxs.includes(idx));
 
   const img = el("img", "big");
   img.src = `/keyframe/${idx}`;
   box.append(img);
 
   const title = el("h3");
-  title.textContent = hit ? `${hit.video_id} · frame ${hit.frame_idx}` : `idx ${idx}`;
+  title.textContent = hit ? `${hit.video_id} • frame ${hit.frame_idx}` : `Đang tải chi tiết...`;
   box.append(title);
 
-  if (hit) {
+  let currentItem = hit;
+  if (!currentItem) {
+    try {
+      const entry = await fetchEntry(idx);
+      if (S.detailIdx !== idx) return; // stale request
+      currentItem = {
+        idx: entry.idx,
+        video_id: entry.video_id,
+        frame_idx: entry.frame_idx,
+        pts_time: entry.pts_time,
+        score: parentHit ? parentHit.score : 0,
+        rank: parentHit ? parentHit.rank : 0,
+        ranks: parentHit ? parentHit.ranks : {},
+      };
+      title.textContent = `${entry.video_id} • frame ${entry.frame_idx}`;
+    } catch (e) {
+      title.textContent = `idx ${idx}`;
+    }
+  }
+
+  if (currentItem) {
     const kv = el("div", "kv");
-    const ranks = Object.entries(hit.ranks).map(([m, r]) => `${m}#${r}`).join("  ");
-    kv.textContent = `t=${hit.pts_time.toFixed(2)}s · RRF ${hit.score.toFixed(6)} · ${ranks}`;
+    const ranks = (parentHit && parentHit.ranks) ? Object.entries(parentHit.ranks).map(([m, r]) => `${m}#${r}`).join("  ") : "";
+    const scoreStr = parentHit ? ` • RRF ${(parentHit.score || 0).toFixed(6)}` : "";
+    const rankStr = ranks ? ` • ${ranks}` : "";
+    kv.textContent = `t=${(currentItem.pts_time || 0).toFixed(2)}s${scoreStr}${rankStr}`;
     box.append(kv);
   }
 
@@ -212,7 +271,10 @@ async function showDetail(idx) {
   const pickBtn = el("button");
   const inBasket = S.picked.some((p) => p.idx === idx);
   pickBtn.textContent = inBasket ? "Bỏ khỏi giỏ" : "Thêm vào giỏ";
-  pickBtn.addEventListener("click", async () => togglePick(hit ?? (await fetchEntry(idx))));
+  pickBtn.addEventListener("click", async () => {
+    const itemToPick = currentItem ?? (await fetchEntry(idx));
+    togglePick(itemToPick);
+  });
 
   const simBtn = el("button");
   simBtn.textContent = "Tìm ảnh giống";
@@ -395,7 +457,7 @@ async function doExport() {
 /* ---------- phim tat ---------- */
 
 function typing(target) {
-  return target instanceof HTMLInputElement || target instanceof HTMLSelectElement;
+  return target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
 }
 
 document.addEventListener("keydown", (ev) => {
@@ -404,7 +466,11 @@ document.addEventListener("keydown", (ev) => {
   if (ev.ctrlKey && ev.key.toLowerCase() === "e") { ev.preventDefault(); doExport(); return; }
 
   if (typing(ev.target)) {
-    if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); doSearch(); }
+    if (ev.key === "Enter" && !ev.shiftKey) { 
+      ev.preventDefault(); 
+      ev.target.blur(); 
+      doSearch(); 
+    }
     return;
   }
 
@@ -445,5 +511,131 @@ $("task").addEventListener("change", (ev) => {
     : "";
 });
 
+/* ---------- OD filter ---------- */
+function renderODTags() {
+  const box = $("od-tags");
+  box.textContent = "";
+  S.odFilters.forEach((f, i) => {
+    const chip = el("div", "chip");
+    const colorTxt = (f.color && f.color !== "none") ? `[${f.color}] ` : "";
+    chip.textContent = `${colorTxt}${f.label}: ${f.count}`;
+    chip.title = "Bấm để xóa";
+    chip.addEventListener("click", () => {
+      S.odFilters.splice(i, 1);
+      renderODTags();
+    });
+    box.append(chip);
+  });
+}
+
+$("btn-add-od").addEventListener("click", () => {
+  const lbl = $("od-label").value.trim();
+  const color = $("od-color").value;
+  const cnt = parseInt($("od-count").value, 10);
+  if (lbl && cnt > 0) {
+    S.odFilters.push({ label: lbl, count: cnt, color: color });
+    $("od-label").value = "";
+    $("od-color").value = "none";
+    renderODTags();
+  }
+});
+
 renderBasket();
 checkHealth();
+
+/* ---------- Resizable Splitter & Auto-expand Search ---------- */
+
+function initSplitter() {
+  const splitter = $("splitter");
+  const detail = $("detail");
+  if (!splitter || !detail) return;
+
+  const savedWidth = localStorage.getItem("aic_detail_width");
+  if (savedWidth) {
+    const w = parseInt(savedWidth, 10);
+    if (w >= 240 && w <= window.innerWidth * 0.75) {
+      detail.style.width = w + "px";
+    }
+  }
+
+  let isDragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  splitter.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startWidth = detail.getBoundingClientRect().width;
+    splitter.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const deltaX = startX - e.clientX;
+    const newWidth = Math.max(240, Math.min(Math.round(startWidth + deltaX), Math.round(window.innerWidth * 0.75)));
+    detail.style.width = newWidth + "px";
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!isDragging) return;
+    isDragging = false;
+    splitter.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    const finalWidth = parseInt(detail.style.width, 10);
+    if (finalWidth) {
+      localStorage.setItem("aic_detail_width", finalWidth);
+    }
+  });
+}
+
+function initAutoExpandQuery() {
+  const queryInput = $("query");
+  if (!queryInput) return;
+  function autoExpand() {
+    queryInput.style.height = "auto";
+    queryInput.style.height = Math.max(60, Math.min(queryInput.scrollHeight, 240)) + "px";
+  }
+  queryInput.addEventListener("input", autoExpand);
+  autoExpand();
+}
+
+initSplitter();
+initAutoExpandQuery();
+
+/* ---------- Header Collapse / Expand ---------- */
+
+function initHeaderToggle() {
+  const btn = $("btn-toggle-header");
+  const header = document.querySelector("header");
+  if (!btn || !header) return;
+
+  function setCollapsed(collapsed) {
+    header.classList.toggle("collapsed", collapsed);
+    btn.textContent = collapsed ? "▼ Mở rộng" : "▲ Thu gọn";
+    localStorage.setItem("aic_header_collapsed", collapsed ? "1" : "0");
+  }
+
+  // Restore saved state
+  if (localStorage.getItem("aic_header_collapsed") === "1") {
+    setCollapsed(true);
+  }
+
+  btn.addEventListener("click", () => {
+    const isNow = !header.classList.contains("collapsed");
+    setCollapsed(isNow);
+  });
+
+  // Hotkey Ctrl+H to toggle header
+  document.addEventListener("keydown", (ev) => {
+    if (ev.ctrlKey && ev.key.toLowerCase() === "h") {
+      ev.preventDefault();
+      const isNow = !header.classList.contains("collapsed");
+      setCollapsed(isNow);
+    }
+  });
+}
+
+initHeaderToggle();

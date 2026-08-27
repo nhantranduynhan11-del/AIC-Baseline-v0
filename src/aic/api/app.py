@@ -82,6 +82,7 @@ class SearchRequest(BaseModel):
     ocr: str | None = Field(default=None, description="Cum chu phai co tren man hinh")
     ocr_phrase: bool = True
     ocr_min_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    od_filters: list[dict[str, Any]] | None = Field(default=None, description="Dieu kien vat the: label, count")
 
 
 class SearchHit(BaseModel):
@@ -92,6 +93,7 @@ class SearchHit(BaseModel):
     score: float
     rank: int
     ranks: dict[str, int]
+    sequence_idxs: list[int] | None = None
 
 
 class SearchResponse(BaseModel):
@@ -182,6 +184,9 @@ def search(req: SearchRequest, state: AppState = Depends(get_state)) -> SearchRe
             rrf_k=state.cfg.retrieval.rrf_k,
             top_n=req.top_n,
             allowed_idxs=allowed,
+            yolo_model=state.yolo_model,
+            keyframes_dir=state.cfg.paths.keyframes,
+            od_filters=req.od_filters,
         )
 
     rows = pipeline.hydrate(state.bundle, hits)

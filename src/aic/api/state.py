@@ -28,12 +28,21 @@ class AppState:
     bundle: IndexBundle
     encoder: Any
     conn: Any = None                       # sqlite3.Connection, None neu chua co DB OCR
+    yolo_model: Any = None                 # ultralytics.YOLOWorld
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     @classmethod
     def load(cls, cfg: Any, device: str | None = None) -> "AppState":
         from aic.retrieval.encode_query import QueryEncoder
         from aic.store import sqlite_store as store
+        
+        try:
+            from ultralytics import YOLO
+            print("[API] Dang tai YOLO11s...")
+            yolo_model = YOLO("yolo11s.pt")
+        except ImportError:
+            print("[API] Khong the nap YOLO11s, vui long 'pip install ultralytics'")
+            yolo_model = None
 
         bundle = IndexBundle.from_config(cfg)
         encoder = QueryEncoder(cfg, device=device)

@@ -2,6 +2,7 @@
 numpy
 pyyaml                  # doc configs/*.yaml
 tqdm
+ultralytics
 
 # --- Vector store (A.6) ---
 faiss-cpu               # IndexFlatIP. Chay tren vast.ai van dung ban CPU duoc:

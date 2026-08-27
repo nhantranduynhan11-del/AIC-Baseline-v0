@@ -32,6 +32,7 @@ class FusedHit:
     score: float
     rank: int
     ranks: dict[str, int] = field(default_factory=dict)
+    sequence_idxs: list[int] = field(default_factory=list)
 
 
 def _rank_of(item: Any, position: int, source: str) -> tuple[int, int]:
