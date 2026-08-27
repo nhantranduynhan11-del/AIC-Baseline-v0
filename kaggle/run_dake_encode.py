@@ -224,19 +224,27 @@ def run_step(name: str, step: str, shards: int, extra_for, deadline: float) -> b
     return all(c == 0 for c in codes)
 
 
-def pack(keyframes_dir: Path, shards: int) -> None:
-    """Đóng gói .npy + .json + DB OCR. KHÔNG kèm ảnh - máy gộp đã có ảnh rồi."""
+def pack(shards: int) -> None:
+    """Đóng gói .npy + DB OCR. KHÔNG kèm ảnh - máy gộp đã có ảnh rồi.
+
+    Lấy .npy từ EMB_DIR chứ không từ thư mục ảnh: ảnh nằm ở /kaggle/input chỉ
+    đọc, vector được ghi riêng sang /kaggle/working.
+    """
     print(f"\n{'=' * 70}\n### Đóng gói\n{'=' * 70}")
     out = WORK / "aic_dake_vectors.tar.gz"
+    n = 0
     with tarfile.open(out, "w:gz") as tar:
-        for path in sorted(keyframes_dir.rglob("*")):
-            if path.is_file() and path.suffix in (".npy", ".json"):
-                tar.add(path, arcname=f"keyframes/{path.relative_to(keyframes_dir)}")
+        if EMB_DIR.is_dir():
+            for path in sorted(EMB_DIR.rglob("*.npy")):
+                tar.add(path, arcname=f"keyframes/{path.relative_to(EMB_DIR)}")
+                n += 1
+        else:
+            print(f"  ! Không có {EMB_DIR} — chưa encode gì?", file=sys.stderr)
         for i in range(shards):
             db = DATA / f"metadata_dake_shard{i}.db"
             if db.exists():
                 tar.add(db, arcname=db.name)
-    print(f"  {out.name}  {out.stat().st_size / 1e6:.0f} MB")
+    print(f"  {out.name}  {out.stat().st_size / 1e6:.0f} MB  ({n} file .npy)")
     print("\nTải file này về máy gộp, giải nén đè lên data/, rồi:")
     print("  python scripts/06_merge.py --merge-db data/metadata_dake_shard*.db")
     print("  python scripts/02_keyframe.py --build-manifest")
@@ -251,6 +259,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--deadline-hours", type=float, default=DEFAULT_DEADLINE_HOURS)
     p.add_argument("--skip-ocr", action="store_true")
+    p.add_argument("--pack-only", action="store_true",
+                   help="Chỉ đóng gói kết quả đã có, không encode lại")
     p.add_argument("--keyframes", default=None, help="Ghi đè thư mục keyframe trong /kaggle/input")
     return p.parse_args()
 
@@ -259,8 +269,11 @@ def main() -> int:
     args = parse_args()
     if args.setup:
         return setup()
+    if args.pack_only:
+        pack(args.shards or 2)
+        return 0
     if not args.run:
-        print("Cần --setup hoặc --run", file=sys.stderr)
+        print("Cần --setup, --run hoặc --pack-only", file=sys.stderr)
         return 2
 
     src = Path(args.keyframes) if args.keyframes else find_keyframes_root()
